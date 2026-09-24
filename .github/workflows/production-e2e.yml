@@ -9,6 +9,10 @@ on:
         type: string
   schedule:
     - cron: '31 4 * * *'
+  push:
+    paths:
+      - 'tests/e2e/production-smoke.spec.js'
+      - '.github/workflows/production-e2e.yml'
 
 jobs:
   production-smoke:

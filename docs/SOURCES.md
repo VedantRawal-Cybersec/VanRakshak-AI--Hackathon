@@ -16,12 +16,14 @@ This file is intentionally explicit. VanRakshak separates **runtime providers** 
 - NASA GIBS API — https://nasa-gibs.github.io/gibs-api-docs/
 - NASA Worldview — https://github.com/nasa-gibs/worldview
 - NASA GIBS examples — https://github.com/nasa-gibs/gibs-web-examples
+- Google Earth Engine API client — https://github.com/google/earthengine-api
 
 ### Runtime use in VanRakshak
 
 - Copernicus STAC: authoritative Sentinel-2 catalogue metadata.
 - Earth Search: public Sentinel-2 L2A STAC/COG path used for visual tile rendering and multispectral analysis.
 - ASF: Sentinel-1 radar-scene discovery.
+- Google Earth Engine Python API: authenticated access to Dynamic World, Hansen, GEDI, SRTM, MODIS, CHIRPS, WDPA and other catalog layers.
 
 ## 2. Forest / land-cover / disturbance
 

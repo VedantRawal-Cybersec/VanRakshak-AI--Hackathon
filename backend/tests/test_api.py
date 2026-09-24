@@ -82,3 +82,21 @@ def test_dashboard_uses_real_evidence_endpoints_for_core_actions():
     assert "api('/api/intelligence/predict'" not in js
     assert "api('/api/intelligence/what-if'" not in js
     assert "api('/api/patrol/road-route'" not in js
+
+
+def test_dashboard_filters_drive_live_layer_requests():
+    from pathlib import Path
+    js_candidates=[Path('/web/app.js'),Path('web/app.js'),Path(__file__).resolve().parents[2]/'web'/'app.js']
+    js=next(p for p in js_candidates if p.exists()).read_text(encoding='utf-8')
+    assert "satelliteLayerPath" in js
+    assert "start_date" in js and "end_date" in js
+    assert "cloudFilter" in js and "confidenceFilter" in js
+    assert "scheduleLayerFilterApply" in js and "applyLayerFilters" in js
+    assert "['freshnessFilter','resolutionFilter','cloudFilter','confidenceFilter','startDate','endDate']" in js
+    assert "mode=true_color&cloud_lt=60" not in js
+    assert "mode=ndvi&cloud_lt=60" not in js
+
+
+def test_satellite_render_probe_route_registered():
+    paths={r.path for r in app.routes}
+    assert '/api/map/satellite-modes/status' in paths

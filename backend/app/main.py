@@ -754,14 +754,17 @@ async def remote_change_ep(
         adate=datetime.fromisoformat(after_date).replace(tzinfo=timezone.utc)
     except Exception:
         raise HTTPException(422,"Dates must use YYYY-MM-DD")
-    before=await earth.closest_scene(lat,lon,bdate,35,cloud_lt)
-    after=await earth.closest_scene(lat,lon,adate,35,cloud_lt)
-    if not before or not after:
-        raise HTTPException(404,"Could not find suitable Sentinel-2 scenes for both dates")
-    try:
-        return await asyncio.to_thread(remote_change_analyze,before,after,lat,lon,radius_km,ndvi_drop_threshold,forest_ndvi_threshold)
-    except Exception as e:
-        raise HTTPException(503,f"Remote Sentinel analysis failed: {e}")
+    key=f"remote-change:{round(lat,5)}:{round(lon,5)}:{before_date}:{after_date}:{radius_km}:{ndvi_drop_threshold}:{forest_ndvi_threshold}:{cloud_lt}"
+    async def produce():
+        before=await earth.closest_scene(lat,lon,bdate,35,cloud_lt)
+        after=await earth.closest_scene(lat,lon,adate,35,cloud_lt)
+        if not before or not after:
+            raise HTTPException(404,"Could not find suitable Sentinel-2 scenes for both dates")
+        try:
+            return await asyncio.to_thread(remote_change_analyze,before,after,lat,lon,radius_km,ndvi_drop_threshold,forest_ndvi_threshold)
+        except Exception as e:
+            raise HTTPException(503,f"Remote Sentinel analysis failed: {e}")
+    return await cached_async(key,max(settings.cache_ttl_s,86400),produce)
 
 
 @app.get("/api/analysis/sar-change")
@@ -776,14 +779,17 @@ async def sar_change_ep(
         adate=datetime.fromisoformat(after_date).replace(tzinfo=timezone.utc)
     except Exception:
         raise HTTPException(422,"Dates must use YYYY-MM-DD")
-    pair=await earth.closest_sentinel1_pair(lat,lon,bdate,adate,window_days)
-    if not pair:
-        raise HTTPException(404,"Could not find a matched-orbit Sentinel-1 pair around both dates")
-    before,after=pair
-    try:
-        return await asyncio.to_thread(sar_change_analyze,before,after,lat,lon,radius_km,drop_db_threshold)
-    except Exception as e:
-        raise HTTPException(503,f"Sentinel-1 SAR change screening failed: {e}")
+    key=f"sar-change:{round(lat,5)}:{round(lon,5)}:{before_date}:{after_date}:{radius_km}:{window_days}:{drop_db_threshold}"
+    async def produce():
+        pair=await earth.closest_sentinel1_pair(lat,lon,bdate,adate,window_days)
+        if not pair:
+            raise HTTPException(404,"Could not find a matched-orbit Sentinel-1 pair around both dates")
+        before,after=pair
+        try:
+            return await asyncio.to_thread(sar_change_analyze,before,after,lat,lon,radius_km,drop_db_threshold)
+        except Exception as e:
+            raise HTTPException(503,f"Sentinel-1 SAR change screening failed: {e}")
+    return await cached_async(key,max(settings.cache_ttl_s,86400),produce)
 
 
 @app.get("/api/analysis/evidence-chain")
@@ -801,18 +807,11 @@ async def evidence_chain_ep(
     sar_change = None
     if before_date and after_date:
         try:
-            bdate=datetime.fromisoformat(before_date).replace(tzinfo=timezone.utc)
-            adate=datetime.fromisoformat(after_date).replace(tzinfo=timezone.utc)
-            before=await earth.closest_scene(lat,lon,bdate,35,cloud_lt)
-            after=await earth.closest_scene(lat,lon,adate,35,cloud_lt)
-            if before and after:
-                change=await asyncio.to_thread(remote_change_analyze,before,after,lat,lon,radius_km,.2,.45)
+            change=await remote_change_ep(lat,lon,before_date,after_date,radius_km,.2,.45,cloud_lt)
         except Exception:
             change=None
         try:
-            pair=await earth.closest_sentinel1_pair(lat,lon,bdate,adate,24)
-            if pair:
-                sar_change=await asyncio.to_thread(sar_change_analyze,pair[0],pair[1],lat,lon,radius_km,2.5)
+            sar_change=await sar_change_ep(lat,lon,before_date,after_date,min(radius_km,8),24,2.5)
         except Exception:
             sar_change=None
     protected_ctx = (sources.get("protected_area") or {}).get("data") or {}

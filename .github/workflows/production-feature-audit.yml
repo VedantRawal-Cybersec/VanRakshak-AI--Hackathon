@@ -1,0 +1,27 @@
+name: Production Feature Audit
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/production_feature_audit.py'
+      - '.github/workflows/production-feature-audit.yml'
+      - 'backend/app/main.py'
+      - 'backend/app/services/feature_status.py'
+  schedule:
+    - cron: '17 5 * * *'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      BASE_URL: https://vanrakshak-api-production-3e28.up.railway.app
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Wait for Railway and audit all 37 features
+        run: python scripts/production_feature_audit.py

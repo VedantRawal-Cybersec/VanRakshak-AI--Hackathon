@@ -1,0 +1,7 @@
+[
+  {"id":"kodagu","name":"Kodagu Forest Region","lat":12.3375,"lon":75.8069,"state":"Karnataka","radius_km":2.0},
+  {"id":"bandipur","name":"Bandipur National Park","lat":11.6667,"lon":76.6333,"state":"Karnataka","radius_km":2.0},
+  {"id":"nagarhole","name":"Nagarhole National Park","lat":12.0333,"lon":76.1167,"state":"Karnataka","radius_km":2.0},
+  {"id":"western_ghats","name":"Western Ghats — Agumbe","lat":13.5086,"lon":75.0903,"state":"Karnataka","radius_km":2.0},
+  {"id":"bhadra","name":"Bhadra Wildlife Sanctuary","lat":13.6933,"lon":75.6372,"state":"Karnataka","radius_km":2.0}
+]

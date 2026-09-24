@@ -422,7 +422,11 @@ async def map_satellite_layer(
                 p=item.get("properties") or {}
                 cloud=p.get("eo:cloud_cover")
                 dt=str(p.get("datetime") or "")
-                return (float(cloud if cloud is not None else 1000),-datetime.fromisoformat(dt.replace("Z","+00:00")).timestamp() if dt else 0)
+                try:
+                    ts=datetime.fromisoformat(dt.replace("Z","+00:00")).timestamp() if dt else 0.0
+                except Exception:
+                    ts=0.0
+                return (-ts,float(cloud if cloud is not None else 1000))
             pitems.sort(key=pc_key)
             fallback=await pc.tile_spec(pitems[0],mode)
             fallback["fallback_reason"]=primary_error

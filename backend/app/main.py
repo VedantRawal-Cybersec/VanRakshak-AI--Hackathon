@@ -750,6 +750,13 @@ async def evidence_chain_ep(
                     carbon={"reference_carbon_density_tC_per_ha":density,"estimated_carbon_loss_tC":round(tc,2),"estimated_co2e_t":round(tc*44/12,2),"uncertainty_note":"Reference carbon-density layer circa 2010; this is an order-of-magnitude impact estimate, not a field inventory.","label":"AI_ESTIMATE"}
             except Exception:
                 carbon=None
+    if sar_change:
+        sources["sar_change"]={
+            "ok":True,
+            "data":sar_change,
+            "provenance":prov("Sentinel-1 GRD / Earth Search","DERIVED_METRIC",earth.source_url,observed_at=(sar_change.get("after") or {}).get("datetime"),notes=sar_change.get("warning")).model_dump(),
+            "error":None,
+        }
     chain=build_chain(sources,change,climate)
     warning=partial_risk(change,sources,climate,protected)
     doctor=None

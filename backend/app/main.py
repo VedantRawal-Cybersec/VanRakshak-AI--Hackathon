@@ -18,7 +18,7 @@ from app.adapters import (
     OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter,
     FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter,
     EarthSearchAdapter, NominatimAdapter, EarthEngineAdapter, Sentinel1ASFAdapter, OSRMAdapter,
-    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter,
+    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter,
 )
 from app.adapters.base import AdapterError
 from app.services.layers import LAYER_GROUPS, FEATURES
@@ -71,7 +71,7 @@ weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGrids
 overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
 gdelt = GDELTAdapter(); gfw = GFWAdapter(); earth = EarthSearchAdapter()
 geocoder = NominatimAdapter(); photon = PhotonAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
-bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter()
+bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter()
 
 
 def prov(source, freshness="UNKNOWN", url=None, observed_at=None, notes=None, resolution_m=None):
@@ -93,6 +93,31 @@ async def wrap(name, coro, freshness, url, resolution_m=None):
             ok=False, data=None, error=str(e),
             provenance=prov(name, freshness, url, notes="Unavailable; no fallback environmental values were fabricated."),
         )
+
+
+async def climate_anomaly_real(lat: float, lon: float, window_days: int = 30, baseline_years: int = 5):
+    errors=[]
+    for provider,label in ((weather,"Open-Meteo Historical/Reanalysis"),(power,"NASA POWER Daily Meteorology")):
+        try:
+            result=await climate_anomaly(provider,lat,lon,window_days,baseline_years)
+            result["provider_fallback_used"]=bool(errors)
+            if errors:
+                result["provider_trace"]=errors
+            return result
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+    raise RuntimeError("All real historical climate providers failed: "+" | ".join(errors))
+
+
+async def historical_climate_daily_real(lat: float, lon: float, start: str, end: str):
+    errors=[]
+    for provider,label in ((weather,"Open-Meteo Historical/Reanalysis"),(power,"NASA POWER Daily Meteorology")):
+        try:
+            data=await provider.historical_daily(lat,lon,start,end)
+            return data,label,errors
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+    raise RuntimeError("All real historical climate providers failed: "+" | ".join(errors))
 
 
 async def fire_source_result(lat: float, lon: float, days: int = 1):
@@ -202,6 +227,7 @@ async def health():
             "credential_free_fallbacks": True,
             "gibs": True,
             "eonet": True,
+            "nasa_power": True,
             "photon_geocoder": True,
         },
     }
@@ -297,7 +323,7 @@ async def source_health(lat: float = 12.9716, lon: float = 77.5946):
     return await source_health_snapshot({
         "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
         "geocoder": geocoder, "photon": photon, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
-        "gibs": gibs, "eonet": eonet,
+        "gibs": gibs, "eonet": eonet, "power": power,
     }, lat, lon)
 
 
@@ -331,7 +357,7 @@ async def weather_ep(lat: float, lon: float):
 @app.get("/api/climate/anomaly")
 async def climate_anomaly_ep(lat: float, lon: float, window_days: int = Query(30, ge=7, le=90), baseline_years: int = Query(5, ge=2, le=15)):
     try:
-        return await climate_anomaly(weather, lat, lon, window_days, baseline_years)
+        return await climate_anomaly_real(lat, lon, window_days, baseline_years)
     except Exception as e:
         raise HTTPException(503, str(e))
 
@@ -891,7 +917,7 @@ async def evidence_chain_ep(
     sources = await investigation_sources(lat, lon, place)
     climate = None
     try:
-        climate = await climate_anomaly(weather, lat, lon, 30, 5)
+        climate = await climate_anomaly_real(lat, lon, 30, 5)
     except Exception:
         climate = None
     change = None
@@ -1230,7 +1256,7 @@ async def climate_forest_correlation_ep(
 ):
     import numpy as np
     series=await vegetation_series_ep(lat,lon,start,end,max_observations,cloud_lt,radius_km)
-    hist=await weather.historical_daily(lat,lon,start,end)
+    hist,climate_source,provider_trace=await historical_climate_daily_real(lat,lon,start,end)
     daily=hist.get("daily") or {}; times=daily.get("time") or []; temps=daily.get("temperature_2m_mean") or []; rains=daily.get("precipitation_sum") or []
     lookup={d:(t,r) for d,t,r in zip(times,temps,rains) if t is not None and r is not None}
     rows=[]
@@ -1242,7 +1268,7 @@ async def climate_forest_correlation_ep(
     def corr(a,b):
         aa=np.array([x[a] for x in rows]); bb=np.array([x[b] for x in rows])
         return None if np.std(aa)==0 or np.std(bb)==0 else round(float(np.corrcoef(aa,bb)[0,1]),3)
-    return {"observations":rows,"pearson":{"temperature__ndvi":corr("temperature_c","ndvi"),"rainfall__ndvi":corr("rainfall_mm","ndvi"),"temperature__forest_fraction":corr("temperature_c","forest_fraction"),"rainfall__forest_fraction":corr("rainfall_mm","forest_fraction")},"label":"DERIVED_METRIC","warning":"Correlation is descriptive and does not establish causation."}
+    return {"observations":rows,"pearson":{"temperature__ndvi":corr("temperature_c","ndvi"),"rainfall__ndvi":corr("rainfall_mm","ndvi"),"temperature__forest_fraction":corr("temperature_c","forest_fraction"),"rainfall__forest_fraction":corr("rainfall_mm","forest_fraction")},"climate_source":climate_source,"provider_fallback_used":bool(provider_trace),"provider_trace":provider_trace,"label":"DERIVED_METRIC","warning":"Correlation is descriptive and does not establish causation."}
 
 
 @app.post("/api/analysis/fragmentation")

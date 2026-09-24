@@ -389,7 +389,7 @@ async def source_health(lat: float = 12.9716, lon: float = 77.5946):
     return await source_health_snapshot({
         "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
         "geocoder": geocoder, "photon": photon, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
-        "gibs": gibs, "eonet": eonet, "power": power, "pc": pc,
+        "gibs": gibs, "eonet": eonet, "power": power, "pc": pc, "gnews": gnews,
     }, lat, lon)
 
 
@@ -398,11 +398,29 @@ def layers():
     return {
         "groups": LAYER_GROUPS,
         "global_filters": [
-            "date_range", "source", "resolution", "freshness", "state", "district",
-            "forest", "confidence", "severity", "cloud_cover", "protected_only",
+            "date_range", "source", "layer_type", "resolution", "freshness",
+            "confidence", "cloud_cover",
         ],
         "earth_engine": ee.catalog(),
     }
+
+
+@app.get("/api/integrations/open-source")
+def open_source_integrations():
+    candidates=[
+        Path(__file__).resolve().parents[2]/"config"/"open_source_integrations.json",
+        Path("/config/open_source_integrations.json"),
+    ]
+    for path in candidates:
+        if path.exists():
+            data=json.loads(path.read_text(encoding="utf-8"))
+            items=data.get("integrations") or []
+            return {
+                **data,
+                "count":len(items),
+                "runtime_or_integrated":sum(1 for x in items if x.get("status") in {"RUNTIME","API_INTEGRATED"}),
+            }
+    raise HTTPException(503,"Open-source integration registry unavailable")
 
 
 @app.get("/api/geocode")

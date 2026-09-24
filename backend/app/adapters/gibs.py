@@ -35,9 +35,13 @@ class GIBSAdapter(BaseAdapter):
         d = observed_date or (date.today() - timedelta(days=1)).isoformat()
         # Avoid accepting arbitrary path fragments.
         try:
-            date.fromisoformat(d)
+            parsed = date.fromisoformat(d)
         except ValueError as exc:
             raise AdapterError("GIBS date must use YYYY-MM-DD") from exc
+        # Daily imagery can lag UTC day boundaries; never default a map tile to an incomplete future/today slot.
+        if parsed >= date.today():
+            parsed = date.today() - timedelta(days=1)
+            d = parsed.isoformat()
         base = settings.gibs_url.rstrip("/")
         url = (
             f"{base}/wmts/epsg3857/best/{layer['identifier']}/default/{d}/"

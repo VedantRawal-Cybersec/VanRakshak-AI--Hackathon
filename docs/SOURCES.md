@@ -23,6 +23,13 @@ This file is intentionally explicit. VanRakshak separates **runtime providers** 
 - Earth Search: public Sentinel-2 L2A STAC/COG path used for visual tile rendering and multispectral analysis.
 - ASF: Sentinel-1 radar-scene discovery.
 
+### Google Earth Engine client
+
+- Official Earth Engine API repository — https://github.com/google/earthengine-api
+- Earth Engine Data Catalog — https://developers.google.com/earth-engine/datasets/
+
+VanRakshak uses the official `earthengine-api` Python package. Authentication is provided at deployment time through a Google Cloud project and Application Default Credentials/service-account credentials; credentials are never committed to Git.
+
 ## 2. Forest / land-cover / disturbance
 
 - Dynamic World V1 — https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1
@@ -71,7 +78,7 @@ VanRakshak ships a working source-backed multispectral change baseline and an ex
 - FIRMS API — https://firms.modaps.eosdis.nasa.gov/api/
 - FIRMS WMS — https://firms.modaps.eosdis.nasa.gov/mapserver/wms-info/
 
-Runtime note: FIRMS Area API requires a free MAP key.
+Runtime note: FIRMS Area API requires a free MAP key. VanRakshak reads it only from `FIRMS_MAP_KEY` at runtime and never commits the real key to this public repository.
 
 ## 6. Climate / weather / drought
 

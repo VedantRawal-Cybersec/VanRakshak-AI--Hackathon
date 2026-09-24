@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "last_verified_at": "2026-09-24T12:53:36Z",
+  "verification_source": "GitHub Actions Demo Forest Preflight run 36001728779",
+  "scientific_note": "These are preflight-verified observation pairs for reliable demonstrations. Scene availability is evidence of data access, not evidence of deforestation. Analysis outputs must be computed live/cached from the source scenes.",
+  "scenarios": [
+    {
+      "id": "kodagu",
+      "priority": "PRIMARY",
+      "name": "Kodagu Forest Region",
+      "state": "Karnataka",
+      "lat": 12.3375,
+      "lon": 75.8069,
+      "zoom": 9.2,
+      "sentinel2": {
+        "before": {
+          "id": "S2B_43PEP_20251106_0_L2A",
+          "date": "2025-11-06",
+          "cloud_pct": 0.215696
+        },
+        "after": {
+          "id": "S2B_43PEP_20260204_0_L2A",
+          "date": "2026-02-04",
+          "cloud_pct": 0.008437
+        }
+      },
+      "sentinel1": {
+        "matched_pair": true,
+        "before_id": "S1A_IW_GRDH_1SDV_20251105T004827_20251105T004852_061735_07B71E",
+        "after_id": "S1A_IW_GRDH_1SDV_20260209T004819_20260209T004844_063135_07ECBE"
+      },
+      "preflight": {
+        "weather": true,
+        "eonet": true,
+        "protected_fallback": true,
+        "reverse_geocode": true,
+        "gibs": true
+      }
+    },
+    {
+      "id": "bandipur",
+      "priority": "PRIMARY",
+      "name": "Bandipur National Park",
+      "state": "Karnataka",
+      "lat": 11.667,
+      "lon": 76.634,
+      "zoom": 10,
+      "sentinel2": {
+        "before": {
+          "id": "S2B_43PFP_20260412_0_L2A",
+          "date": "2026-04-12",
+          "cloud_pct": 1.763601
+        },
+        "after": {
+          "id": "S2B_43PFN_20260714_0_L2A",
+          "date": "2026-07-14",
+          "cloud_pct": 22.376993
+        }
+      },
+      "sentinel1": {
+        "matched_pair": true,
+        "before_id": "S1A_IW_GRDH_1SDV_20260417T004036_20260417T004101_064112_08117A",
+        "after_id": "S1D_IW_GRDH_1SDV_20260717T003955_20260717T004020_003706_006A22"
+      },
+      "preflight": {
+        "weather": true,
+        "eonet": true,
+        "protected_fallback": false,
+        "reverse_geocode": true,
+        "gibs": true,
+        "note": "Overpass returned HTTP 504 during this verification; protected-area fallback is treated as transient and must remain labelled when unavailable."
+      }
+    },
+    {
+      "id": "agumbe",
+      "priority": "PRIMARY",
+      "name": "Agumbe Western Ghats",
+      "state": "Karnataka",
+      "lat": 13.5087,
+      "lon": 75.0953,
+      "zoom": 10,
+      "sentinel2": {
+        "before": {
+          "id": "S2B_43PEQ_20260214_0_L2A",
+          "date": "2026-02-14",
+          "cloud_pct": 0.392942
+        },
+        "after": {
+          "id": "S2B_43PEQ_20260515_0_L2A",
+          "date": "2026-05-15",
+          "cloud_pct": 7.606428
+        }
+      },
+      "sentinel1": {
+        "matched_pair": true,
+        "before_id": "S1A_IW_GRDH_1SDV_20260209T004819_20260209T004844_063135_07ECBE",
+        "after_id": "S1A_IW_GRDH_1SDV_20260516T004818_20260516T004843_064535_0820E5"
+      },
+      "preflight": {
+        "weather": true,
+        "eonet": true,
+        "protected_fallback": true,
+        "reverse_geocode": true,
+        "gibs": true
+      }
+    },
+    {
+      "id": "nagarhole",
+      "priority": "BACKUP",
+      "name": "Nagarhole National Park",
+      "state": "Karnataka",
+      "lat": 12.006,
+      "lon": 76.135,
+      "zoom": 10,
+      "sentinel2": {
+        "before": {
+          "id": "S2C_43PFP_20251211_0_L2A",
+          "date": "2025-12-11",
+          "cloud_pct": 0.023194
+        },
+        "after": {
+          "id": "S2B_43PFP_20260326_0_L2A",
+          "date": "2026-03-26",
+          "cloud_pct": 0.002893
+        }
+      },
+      "sentinel1": {
+        "matched_pair": true,
+        "before_id": "S1A_IW_GRDH_1SDV_20251211T004849_20251211T004914_062260_07CB93",
+        "after_id": "S1A_IW_GRDH_1SDV_20260329T004844_20260329T004909_063835_08071B"
+      },
+      "preflight": {
+        "weather": false,
+        "eonet": true,
+        "protected_fallback": true,
+        "reverse_geocode": true,
+        "gibs": true,
+        "note": "Open-Meteo timed out during this verification; satellite/SAR pairs were available."
+      }
+    },
+    {
+      "id": "bhadra",
+      "priority": "BACKUP",
+      "name": "Bhadra Wildlife Sanctuary",
+      "state": "Karnataka",
+      "lat": 13.704,
+      "lon": 75.637,
+      "zoom": 10,
+      "sentinel2": {
+        "before": {
+          "id": "S2A_43PER_20250507_0_L2A",
+          "date": "2025-05-07",
+          "cloud_pct": 0.18197
+        },
+        "after": {
+          "id": "S2B_43PER_20260415_0_L2A",
+          "date": "2026-04-15",
+          "cloud_pct": 0.183304
+        }
+      },
+      "sentinel1": {
+        "matched_pair": true,
+        "before_id": "S1A_IW_GRDH_1SDV_20250509T004830_20250509T004855_059110_075575",
+        "after_id": "S1A_IW_GRDH_1SDV_20260410T004819_20260410T004844_064010_080DA7"
+      },
+      "preflight": {
+        "weather": false,
+        "eonet": true,
+        "protected_fallback": true,
+        "reverse_geocode": true,
+        "gibs": true,
+        "note": "Open-Meteo timed out during this verification; satellite/SAR pairs were available."
+      }
+    }
+  ]
+}

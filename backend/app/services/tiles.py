@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from app.adapters.base import AdapterError
 from app.adapters.earth_search import EarthSearchAdapter
 from app.adapters.gfw import GFWAdapter
@@ -7,7 +7,7 @@ from app.adapters.gfw import GFWAdapter
 async def satellite_layer(earth: EarthSearchAdapter, lat: float, lon: float, mode: str, days: int, cloud_lt: float, start: datetime | None = None, end: datetime | None = None):
     if start is not None or end is not None:
         end = end or datetime.now(timezone.utc)
-        start = start or (end - __import__('datetime').timedelta(days=days))
+        start = start or (end - timedelta(days=days))
         if start >= end:
             raise AdapterError("Satellite filter start date must be before end date")
         data = await earth.search(lat, lon, start, end, "sentinel-2-l2a", cloud_lt, 60)

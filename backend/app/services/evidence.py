@@ -61,12 +61,43 @@ def build_chain(sources: dict, change: dict | None = None, climate: dict | None 
     fire = sources.get("fire") or {}
     if fire.get("ok"):
         rows = fire.get("data") or []
+        p = fire.get("provenance") or {}
+        src = p.get("source") or "NASA fire intelligence"
+        if "EONET" in src:
+            statement = f"{len(rows)} EONET wildfire-context events returned near the selected area; these are not pixel-level FIRMS thermal detections."
+            kind = "EVENT_CONTEXT"
+        else:
+            statement = f"{len(rows)} multi-sensor NASA FIRMS thermal detections returned in the configured window."
+            kind = "DIRECT_OBSERVATION"
         items.append(evidence_item(
-            "DIRECT_OBSERVATION", "NASA FIRMS", f"{len(rows)} thermal fire detections returned in the configured window.",
-            {"count": len(rows)}, (fire.get("provenance") or {}).get("observed_at"), url=source_url(fire),
+            kind, src, statement, {"count": len(rows)}, p.get("observed_at"), url=source_url(fire),
         ))
     else:
         missing.append("fire")
+
+    natural = sources.get("natural_events") or {}
+    if natural.get("ok"):
+        events=(natural.get("data") or {}).get("events") or []
+        if events:
+            items.append(evidence_item(
+                "EVENT_CONTEXT", "NASA EONET",
+                "Recent NASA-tracked natural events overlap the broader investigation window and are retained as context only.",
+                {"event_count":len(events),"events":[{"id":e.get("id"),"title":e.get("title")} for e in events[:5]]},
+                url=source_url(natural),
+            ))
+
+    protected = sources.get("protected_area") or {}
+    if protected.get("ok"):
+        pdata=protected.get("data") or {}
+        inside=pdata.get("inside")
+        items.append(evidence_item(
+            "REFERENCE_DATA", pdata.get("source") or "Protected-area intelligence",
+            "Protected-area containment/context was checked for the selected location.",
+            {"inside_protected_area":inside,"areas":(pdata.get("areas") or [])[:5]},
+            url=source_url(protected),
+        ))
+    else:
+        missing.append("protected_area")
 
     hp = sources.get("human_pressure") or {}
     if hp.get("ok"):

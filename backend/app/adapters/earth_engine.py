@@ -28,13 +28,17 @@ class EarthEngineAdapter:
     api_repo_url = "https://github.com/google/earthengine-api"
 
     def _ee(self):
+        if not settings.google_cloud_project:
+            raise AdapterError(
+                "Earth Engine is not configured. Set GOOGLE_CLOUD_PROJECT and provide Application Default Credentials."
+            )
         try:
             import ee
         except Exception as e:
             raise AdapterError("earthengine-api package is unavailable") from e
         try:
-            # Uses Application Default Credentials or GOOGLE_APPLICATION_CREDENTIALS.
-            ee.Initialize(project=settings.google_cloud_project or None)
+            # Earth Engine's Python API requires an eligible Cloud project for initialization.
+            ee.Initialize(project=settings.google_cloud_project)
         except Exception as e:
             raise AdapterError("Earth Engine is not authenticated. Configure GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_CLOUD_PROJECT.") from e
         return ee

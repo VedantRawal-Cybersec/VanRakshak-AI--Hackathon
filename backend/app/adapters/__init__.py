@@ -18,3 +18,4 @@ from .eonet import EONETAdapter
 from .photon import PhotonAdapter
 
 from .nasa_power import NASAPowerAdapter
+from .planetary_computer import PlanetaryComputerAdapter

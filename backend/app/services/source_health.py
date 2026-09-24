@@ -51,6 +51,12 @@ async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 
             configured=bool(settings.protected_planet_token),
             note="Set PROTECTED_PLANET_TOKEN to enable API v4 health checks.",
         ),
+        _probe(
+            "Google Earth Engine",
+            asyncio.to_thread(adapters["ee"].health),
+            configured=bool(settings.google_cloud_project),
+            note="Set GOOGLE_CLOUD_PROJECT and authenticate the official earthengine-api client to enable Earth Engine layers.",
+        ),
     ]
     rows = await asyncio.gather(*checks)
     configured = [r for r in rows if r["status"] != "NOT_CONFIGURED"]

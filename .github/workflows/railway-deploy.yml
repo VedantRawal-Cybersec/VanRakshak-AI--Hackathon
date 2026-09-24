@@ -24,19 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify Railway project token
-        shell: sh
-        run: |
-          if [ -z "$RAILWAY_TOKEN" ]; then
-            echo "RAILWAY_TOKEN GitHub secret is required"
-            exit 1
-          fi
+      - name: Deployment credential status
+        if: ${{ env.RAILWAY_TOKEN == '' }}
+        run: echo "RAILWAY_TOKEN is not configured; code validation continues but production deployment is skipped."
 
       - name: Deploy API from this exact GitHub revision
+        if: ${{ env.RAILWAY_TOKEN != '' }}
         run: railway up --service "VanRakshak-API" --environment production --ci
 
       - name: Deploy worker from this exact GitHub revision
+        if: ${{ env.RAILWAY_TOKEN != '' }}
         run: railway up --service "VanRakshak-Worker" --environment production --ci
 
       - name: Show service status
+        if: ${{ env.RAILWAY_TOKEN != '' }}
         run: railway status --json

@@ -49,6 +49,31 @@ class GIBSAdapter(BaseAdapter):
             "label": "GPM IMERG Precipitation Rate",
             "format": "png", "service": "wms", "max_zoom": 7, "resolution_m": 10000,
         },
+        "hls_ndvi_sentinel": {
+            "identifier": "HLS_NDVI_Sentinel",
+            "label": "HLS Sentinel NDVI",
+            "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
+        },
+        "hls_ndwi_sentinel": {
+            "identifier": "HLS_NDWI_Sentinel",
+            "label": "HLS Sentinel NDWI",
+            "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
+        },
+        "hls_moisture_sentinel": {
+            "identifier": "HLS_Moisture_Index_Sentinel",
+            "label": "HLS Sentinel Moisture Index",
+            "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
+        },
+        "hls_nbr_sentinel": {
+            "identifier": "HLS_NBR_Sentinel",
+            "label": "HLS Sentinel NBR",
+            "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
+        },
+        "viirs_snpp_false_color": {
+            "identifier": "VIIRS_SNPP_CorrectedReflectance_BandsM11-I2-I1",
+            "label": "VIIRS S-NPP False Color",
+            "format": "jpeg", "service": "wms", "max_zoom": 9, "resolution_m": 250,
+        },
     }
 
     def catalog(self):

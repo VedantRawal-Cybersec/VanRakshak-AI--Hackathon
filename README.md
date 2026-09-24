@@ -108,6 +108,8 @@ GOOGLE_CLOUD_PROJECT=
 - **PROTECTED_PLANET_TOKEN** — enables Protected Planet API v4.
 - **Earth Engine credentials/project** — enables Dynamic World, Hansen, GEDI, SRTM, MODIS, CHIRPS, WDPA and other Google Earth Engine filters.
 - **MOSDAC downloads** — use the official authenticated `mdapi` workflow; credentials are never committed to Git.
+- **Google Earth Engine client** — official repository: https://github.com/google/earthengine-api
+- **Secret handling** — never commit real provider keys to this public repository. See `docs/SECRETS_SETUP.md`.
 
 ## Main operational APIs
 
@@ -195,6 +197,7 @@ node --check web/app.js
 - `docs/FEATURES.md`
 - `docs/SOURCES.md`
 - `docs/DEPLOYMENT.md`
+- `docs/SECRETS_SETUP.md`
 - `docs/OPENCODE_INSTRUCTIONS.md`
 - `docs/HERMES_INSTRUCTIONS.md`
 

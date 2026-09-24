@@ -50,13 +50,18 @@ def _item_grid(item: dict, src) -> tuple[Affine, CRS]:
         transform=Affine(*[float(x) for x in raw_transform[:6]])
         crs=CRS.from_epsg(int(epsg))
         if raw_shape and len(raw_shape)>=2:
-            expected_h,expected_w=int(raw_shape[0]),int(raw_shape[1])
-            # Earth Search projection metadata describes the measurement raster.
-            # Refuse silent misregistration if an upstream item is inconsistent.
-            if abs(src.height-expected_h)>2 or abs(src.width-expected_w)>2:
+            d0,d1=int(raw_shape[0]),int(raw_shape[1])
+            direct=abs(src.height-d0)<=2 and abs(src.width-d1)<=2
+            transposed=abs(src.width-d0)<=2 and abs(src.height-d1)<=2
+            # Earth Search Sentinel-1 items in the archive are not fully uniform:
+            # most follow STAC [rows, cols], while some historical/new items expose
+            # the same two dimensions in [width, height] order. The affine transform
+            # remains x/y ordered, so either exact orientation is safe; anything else
+            # is rejected to avoid silent geolocation errors.
+            if not (direct or transposed):
                 raise SARChangeError(
                     f"Sentinel-1 projection metadata/raster shape mismatch: "
-                    f"STAC {expected_w}x{expected_h}, raster {src.width}x{src.height}"
+                    f"STAC dimensions {d0}x{d1}, raster {src.width}x{src.height}"
                 )
         return transform,crs
     if src.crs and src.transform:

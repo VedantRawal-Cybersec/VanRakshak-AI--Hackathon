@@ -4,6 +4,16 @@ from sqlalchemy import create_engine, String, Float, DateTime, JSON, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from app.config import settings
 
+
+def sqlalchemy_database_url(url: str) -> str:
+    """Use psycopg v3 explicitly for Railway-style PostgreSQL URLs."""
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    return url
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -50,7 +60,7 @@ class FireObservationRecord(Base):
     confidence: Mapped[str | None] = mapped_column(String(32), nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
 
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+engine = create_engine(sqlalchemy_database_url(settings.database_url), pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def init_db():

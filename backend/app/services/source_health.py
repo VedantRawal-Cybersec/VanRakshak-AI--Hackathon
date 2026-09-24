@@ -58,6 +58,8 @@ async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 
         checks.append(_probe("Photon Geocoder", adapters["photon"].search("Bengaluru", 1)))
     if "power" in adapters:
         checks.append(_probe("NASA POWER", adapters["power"].health()))
+    if "pc" in adapters:
+        checks.append(_probe("Planetary Computer", adapters["pc"].latest_sentinel2(lat, lon, 30, 80)))
 
     rows = await asyncio.gather(*checks)
     configured = [r for r in rows if r["status"] != "NOT_CONFIGURED"]
@@ -70,7 +72,7 @@ async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 
         "fallback_ready": {
             "fire": any(r["source"] in {"NASA EONET","NASA GIBS"} and r["ok"] for r in rows),
             "geocoding": any(r["source"] in {"Nominatim","Photon Geocoder"} and r["ok"] for r in rows),
-            "satellite": any(r["source"] in {"Earth Search","Copernicus STAC","NASA GIBS"} and r["ok"] for r in rows),
+            "satellite": any(r["source"] in {"Earth Search","Copernicus STAC","NASA GIBS","Planetary Computer"} and r["ok"] for r in rows),
             "climate_history": any(r["source"] in {"Open-Meteo","NASA POWER"} and r["ok"] for r in rows),
         },
         "note": "Health is operational telemetry only. Missing credential-gated sources do not disable their credential-free fallbacks.",

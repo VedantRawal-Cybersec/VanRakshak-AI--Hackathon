@@ -1,0 +1,6 @@
+{
+  "name":"vanrakshak-ai-dashboard-e2e",
+  "private":true,
+  "devDependencies":{"@playwright/test":"^1.55.0"},
+  "scripts":{"e2e":"playwright test"}
+}

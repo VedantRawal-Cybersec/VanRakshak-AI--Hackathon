@@ -31,7 +31,7 @@ class RiskInputs(BaseModel):
     protected_area: bool = False
     fragmentation_change: float = Field(0, ge=0, le=1)
     human_pressure: float = Field(0, ge=0, le=1)
-    model_confidence: float = Field(0.5, ge=0, le=1)
+    model_confidence: float = Field(0.0, ge=0, le=1)
 
 class CarbonRequest(BaseModel):
     area_ha: float = Field(gt=0)

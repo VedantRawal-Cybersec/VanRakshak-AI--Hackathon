@@ -139,6 +139,40 @@ async def fire_source_result(lat: float, lon: float, days: int = 1):
         )
 
 
+async def climate_anomaly_source(lat: float, lon: float, window_days: int = 30, baseline_years: int = 5):
+    errors=[]
+    try:
+        result=await climate_anomaly(weather,lat,lon,window_days,baseline_years)
+        result["provider_chain"]=["Open-Meteo Historical/Reanalysis"]
+        return result
+    except Exception as exc:
+        errors.append(f"Open-Meteo: {exc}")
+    try:
+        result=await climate_anomaly(power,lat,lon,window_days,baseline_years)
+        result["provider_chain"]=["Open-Meteo failed","NASA POWER Daily Meteorology"]
+        result["fallback_used"]=True
+        result["fallback_trace"]=errors
+        return result
+    except Exception as exc:
+        errors.append(f"NASA POWER: {exc}")
+        raise AdapterError("Historical climate providers unavailable: "+"; ".join(errors))
+
+
+async def climate_history_source(lat: float, lon: float, start: str, end: str):
+    errors=[]
+    try:
+        data=await weather.historical_daily(lat,lon,start,end)
+        return {"data":data,"source":"Open-Meteo Historical/Reanalysis","fallback_used":False}
+    except Exception as exc:
+        errors.append(f"Open-Meteo: {exc}")
+    try:
+        data=await power.historical_daily(lat,lon,start,end)
+        return {"data":data,"source":"NASA POWER Daily Meteorology","fallback_used":True,"fallback_trace":errors}
+    except Exception as exc:
+        errors.append(f"NASA POWER: {exc}")
+        raise AdapterError("Historical climate providers unavailable: "+"; ".join(errors))
+
+
 async def news_source_result(place: str, timespan: str = "1week"):
     errors=[]
     try:

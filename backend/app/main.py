@@ -405,43 +405,56 @@ async def map_satellite_layer(
     try:
         result=await satellite_layer(earth, lat, lon, mode, days, cloud_lt, start_dt, end_dt)
         result["fallback_used"]=False
+        result["provider_chain"]=["Earth Search","TiTiler"]
         return result
     except Exception as exc:
         primary_error=str(exc)
 
+    # Exact scientific fallback: the same Sentinel-2 L2A bands and formulas,
+    # rendered by Microsoft Planetary Computer instead of our TiTiler.
     search_end=end_dt or datetime.now(timezone.utc)
     search_start=start_dt or (search_end-timedelta(days=days))
-    if mode=="true_color":
-        try:
-            pdata=await pc.search_sentinel2(lat,lon,search_start,search_end,cloud_lt,30)
-            pitems=pdata.get("features") or []
-            if pitems:
-                # Prefer low cloud, then newest, matching the primary behavior.
-                pitems.sort(key=lambda item:(float((item.get("properties") or {}).get("eo:cloud_cover") if (item.get("properties") or {}).get("eo:cloud_cover") is not None else 1000),str((item.get("properties") or {}).get("datetime") or "")))
-                fallback=await pc.true_color_tile(pitems[0])
-                fallback["fallback_reason"]=primary_error
-                return fallback
-        except Exception as exc:
-            primary_error += f" | Planetary Computer: {exc}"
+    try:
+        pdata=await pc.search_sentinel2(lat,lon,search_start,search_end,cloud_lt,30)
+        pitems=pdata.get("features") or []
+        if pitems:
+            def pc_key(item):
+                p=item.get("properties") or {}
+                cloud=p.get("eo:cloud_cover")
+                dt=str(p.get("datetime") or "")
+                return (float(cloud if cloud is not None else 1000),-datetime.fromisoformat(dt.replace("Z","+00:00")).timestamp() if dt else 0)
+            pitems.sort(key=pc_key)
+            fallback=await pc.tile_spec(pitems[0],mode)
+            fallback["fallback_reason"]=primary_error
+            fallback["provider_chain"]=["Earth Search/TiTiler failed","Microsoft Planetary Computer"]
+            fallback["filter_note"]="Same real Sentinel-2 L2A spectral mode; cloud/date filters are preserved."
+            return fallback
+        primary_error += " | Planetary Computer: no matching Sentinel-2 scene"
+    except Exception as exc:
+        primary_error += f" | Planetary Computer: {exc}"
 
+    # Tertiary visualization fallbacks are used only where the product is
+    # scientifically equivalent enough to keep the UI useful without
+    # pretending a different metric is NDMI/NBR/NDWI.
     gibs_by_mode={
         "true_color":"viirs_snpp_true_color",
         "false_color":"viirs_snpp_false_color",
-        "ndvi":"hls_ndvi_sentinel",
-        "ndmi":"hls_moisture_sentinel",
-        "nbr":"hls_nbr_sentinel",
-        "ndwi":"hls_ndwi_sentinel",
+        "ndvi":"modis_terra_ndvi_8day",
     }
-    try:
-        fallback_date=end_date or (datetime.now(timezone.utc)-timedelta(days=1)).date().isoformat()
-        spec=gibs.tile_spec(gibs_by_mode[mode],fallback_date)
-        return {
-            **spec,"mode":mode,"fallback_used":True,"fallback_reason":primary_error,
-            "observed_at":spec.get("date"),"item_id":None,
-            "filter_note":"NASA GIBS fallback is a real rendered product but does not apply the Sentinel-2 scene cloud threshold.",
-        }
-    except Exception as exc:
-        raise HTTPException(503,f"Primary and real satellite fallbacks failed: {primary_error} | NASA GIBS: {exc}")
+    if mode in gibs_by_mode:
+        try:
+            fallback_date=end_date or (datetime.now(timezone.utc)-timedelta(days=2)).date().isoformat()
+            spec=gibs.tile_spec(gibs_by_mode[mode],fallback_date)
+            return {
+                **spec,"mode":mode,"fallback_used":True,"fallback_reason":primary_error,
+                "observed_at":spec.get("date"),"item_id":None,
+                "provider_chain":["Earth Search/TiTiler failed","Planetary Computer failed","NASA GIBS"],
+                "filter_note":"NASA GIBS fallback is real imagery. It does not apply the Sentinel-2 cloud threshold and may have coarser resolution.",
+            }
+        except Exception as exc:
+            primary_error += f" | NASA GIBS: {exc}"
+
+    raise HTTPException(503,f"No real renderer could satisfy satellite mode '{mode}': {primary_error}")
 
 
 @app.get("/api/map/satellite-modes/status")

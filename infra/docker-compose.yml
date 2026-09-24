@@ -5,11 +5,56 @@ services:
       dockerfile: backend/Dockerfile
     env_file:
       - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://vanrakshak:vanrakshak_dev_only@postgis:5432/vanrakshak
+      REDIS_URL: redis://redis:6379/0
+      TITILER_INTERNAL_URL: http://titiler:8000
     ports:
       - "8000:8000"
     depends_on:
-      - postgis
+      postgis:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      titiler:
+        condition: service_started
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://vanrakshak:vanrakshak_dev_only@postgis:5432/vanrakshak
+      REDIS_URL: redis://redis:6379/0
+    command: ["celery", "-A", "app.tasks.celery", "worker", "--loglevel=INFO"]
+    depends_on:
       - redis
+      - postgis
+    restart: unless-stopped
+
+  beat:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://vanrakshak:vanrakshak_dev_only@postgis:5432/vanrakshak
+      REDIS_URL: redis://redis:6379/0
+    command: ["celery", "-A", "app.tasks.celery", "beat", "--loglevel=INFO"]
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  titiler:
+    image: ghcr.io/developmentseed/titiler:latest
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
   postgis:
     image: postgis/postgis:17-3.5
     environment:
@@ -20,9 +65,17 @@ services:
       - "5432:5432"
     volumes:
       - postgis_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vanrakshak -d vanrakshak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    restart: unless-stopped
+
 volumes:
   postgis_data:

@@ -1,162 +1,678 @@
 from __future__ import annotations
 import asyncio, json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+
 from app.config import settings
-from app.models import SourceResult, Provenance, RiskInputs, CarbonRequest, PatrolRequest, WhatIfRequest, ForestDoctorInputs, RecoveryInputs, CorrelationInputs, RegionComparisonRequest
-from app.adapters import OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter, FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter
+from app.models import (
+    SourceResult, Provenance, RiskInputs, CarbonRequest, PatrolRequest, WhatIfRequest,
+    ForestDoctorInputs, RecoveryInputs, CorrelationInputs, RegionComparisonRequest,
+    ThreatPredictionRequest, PersistInvestigationRequest,
+)
+from app.adapters import (
+    OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter,
+    FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter,
+    EarthSearchAdapter, NominatimAdapter, EarthEngineAdapter, Sentinel1ASFAdapter, OSRMAdapter,
+    BhuvanAdapter, MOSDACAdapter,
+)
 from app.adapters.base import AdapterError
 from app.services.layers import LAYER_GROUPS, FEATURES
-from app.services.intelligence import risk_score, cascade, intervention, resilience, forest_doctor, recovery, correlations, compare_regions, anomaly_radar
+from app.services.intelligence import (
+    risk_score, cascade, intervention, resilience, forest_doctor, recovery,
+    correlations, compare_regions, anomaly_radar,
+)
 from app.services.carbon import estimate as carbon_estimate
 from app.services.patrol import optimize as patrol_optimize
 from app.services.nl_query import parse as parse_nl
-from app.services.reporting import pdf_report
+from app.services.reporting import pdf_report, investigation_pdf
 from app.services.raster_analysis import ndvi_change, RasterInputError
+from app.services.fragmentation import metrics as fragmentation_metrics, FragmentationInputError
+from app.services.prediction import predict as predict_threat
+from app.services.climate import anomaly as climate_anomaly
+from app.services.tiles import satellite_layer, compare_layers, gfw_layer
+from app.services.remote_change import analyze as remote_change_analyze, RemoteChangeError, scene_summary, recovery_from_series
+from app.services.evidence import build_chain, partial_risk, pressure_context
+from app.services.model_runtime import status as change_model_status
+from app.services.feature_status import FEATURE_CAPABILITIES
+from app.services.source_health import snapshot as source_health_snapshot
 
-app=FastAPI(title=settings.app_name,version="1.0.0",description="India-first forest intelligence and early-warning platform")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.auto_init_db:
+        try:
+            from app.db import init_db
+            init_db()
+        except Exception:
+            pass
+    yield
 
-weather=OpenMeteoAdapter(); copernicus=CopernicusAdapter(); soil=SoilGridsAdapter(); overpass=OverpassAdapter(); firms=FIRMSAdapter(); pp=ProtectedPlanetAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter()
+app = FastAPI(
+    title=settings.app_name,
+    version="2.0.0",
+    description="India-first satellite forest intelligence, investigation and early-warning platform",
+    lifespan=lifespan,
+)
+
+weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGridsAdapter()
+overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
+gdelt = GDELTAdapter(); gfw = GFWAdapter(); earth = EarthSearchAdapter()
+geocoder = NominatimAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
+bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter()
+
 
 def prov(source, freshness="UNKNOWN", url=None, observed_at=None, notes=None, resolution_m=None):
-    return Provenance(source=source,fetched_at=datetime.now(timezone.utc).isoformat(),observed_at=observed_at,freshness=freshness,source_url=url,notes=notes,resolution_m=resolution_m)
+    return Provenance(
+        source=source, fetched_at=datetime.now(timezone.utc).isoformat(), observed_at=observed_at,
+        freshness=freshness, source_url=url, notes=notes, resolution_m=resolution_m,
+    )
+
 
 async def wrap(name, coro, freshness, url, resolution_m=None):
     try:
-        data=await coro
-        observed=None
-        if isinstance(data,dict):
-            observed=(data.get("current") or {}).get("time") or data.get("datetime")
-        return SourceResult(ok=True,data=data,provenance=prov(name,freshness,url,observed,resolution_m=resolution_m))
+        data = await coro
+        observed = None
+        if isinstance(data, dict):
+            observed = (data.get("current") or {}).get("time") or data.get("datetime")
+        return SourceResult(ok=True, data=data, provenance=prov(name, freshness, url, observed, resolution_m=resolution_m))
     except Exception as e:
-        return SourceResult(ok=False,data=None,error=str(e),provenance=prov(name,freshness,url,notes="Unavailable; no fallback values were fabricated."))
+        return SourceResult(
+            ok=False, data=None, error=str(e),
+            provenance=prov(name, freshness, url, notes="Unavailable; no fallback environmental values were fabricated."),
+        )
+
+
+async def investigation_sources(lat: float, lon: float, place: str):
+    tasks = {
+        "weather": wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url),
+        "satellite": wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", copernicus.source_url, 10),
+        "earth_search": wrap("Earth Search Sentinel-2 L2A", earth.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", earth.source_url, 10),
+        "sentinel1": wrap("ASF Sentinel-1 Search", s1.latest(lat, lon), "DYNAMIC_RECENT", s1.source_url, 10),
+        "soil": wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250),
+        "human_pressure": wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon), "DYNAMIC_RECENT", overpass.source_url),
+        "fire": wrap("NASA FIRMS", firms.fires(lat, lon), "LIVE_NRT", firms.source_url),
+        "news": wrap("GDELT", gdelt.forest_news(place), "DYNAMIC_RECENT", gdelt.source_url),
+        "reverse_geocode": wrap("OpenStreetMap Nominatim", geocoder.reverse(lat, lon), "DYNAMIC_RECENT", geocoder.source_url),
+    }
+    vals = await asyncio.gather(*tasks.values())
+    return dict(zip(tasks.keys(), [v.model_dump() for v in vals]))
+
 
 @app.get("/api/health")
 async def health():
-    return {"ok":True,"service":settings.app_name,"time":datetime.now(timezone.utc).isoformat(),"environment":settings.environment}
+    return {
+        "ok": True, "service": settings.app_name, "version": "2.0.0",
+        "time": datetime.now(timezone.utc).isoformat(), "environment": settings.environment,
+        "capabilities": {
+            "firms_configured": bool(settings.firms_map_key),
+            "protected_planet_configured": bool(settings.protected_planet_token),
+            "earth_engine_project": bool(settings.google_cloud_project),
+            "titiler": settings.titiler_public_url,
+            "database": settings.database_url.split(":",1)[0],
+        },
+    }
+
 
 @app.get("/api/features")
-def features(): return {"count":len(FEATURES),"features":FEATURES}
+def features(): return {"count": len(FEATURES), "features": FEATURES}
+
+@app.get("/api/features/status")
+def feature_status(): return {"count":len(FEATURE_CAPABILITIES),"features":FEATURE_CAPABILITIES}
+
+
+@app.get("/api/source-health")
+async def source_health(lat: float = 12.9716, lon: float = 77.5946):
+    return await source_health_snapshot({
+        "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
+        "geocoder": geocoder, "s1": s1, "firms": firms, "pp": pp,
+    }, lat, lon)
+
 
 @app.get("/api/layers")
-def layers(): return {"groups":LAYER_GROUPS,"global_filters":["date_range","source","resolution","freshness","state","district","forest","confidence","severity","cloud_cover","protected_only"]}
+def layers():
+    return {
+        "groups": LAYER_GROUPS,
+        "global_filters": [
+            "date_range", "source", "resolution", "freshness", "state", "district",
+            "forest", "confidence", "severity", "cloud_cover", "protected_only",
+        ],
+        "earth_engine": ee.catalog(),
+    }
 
-@app.get("/api/weather",response_model=SourceResult)
-async def weather_ep(lat:float,lon:float): return await wrap("Open-Meteo",weather.current(lat,lon),"FORECAST",weather.source_url)
 
-@app.get("/api/satellite/latest",response_model=SourceResult)
-async def sat_ep(lat:float,lon:float,days:int=Query(30,ge=1,le=365),cloud_lt:float=Query(40,ge=0,le=100)):
-    return await wrap("Copernicus Sentinel-2 L2A STAC",copernicus.latest_sentinel2(lat,lon,days,cloud_lt),"DYNAMIC_RECENT",copernicus.source_url,10)
+@app.get("/api/geocode")
+async def geocode(q: str = Query(..., min_length=2)):
+    return await wrap("OpenStreetMap Nominatim", geocoder.search(q), "DYNAMIC_RECENT", geocoder.source_url)
 
-@app.get("/api/soil",response_model=SourceResult)
-async def soil_ep(lat:float,lon:float): return await wrap("SoilGrids",soil.point(lat,lon),"REFERENCE",soil.source_url,250)
 
-@app.get("/api/human-pressure",response_model=SourceResult)
-async def pressure_ep(lat:float,lon:float,radius_m:int=Query(5000,ge=500,le=25000)):
-    result=await wrap("OpenStreetMap / Overpass",overpass.pressure(lat,lon,radius_m),"DYNAMIC_RECENT",overpass.source_url)
-    if result.ok and isinstance(result.data,dict):
-        els=result.data.get("elements",[]); result.data={"count":len(els),"elements":els[:250],"radius_m":radius_m}
+@app.get("/api/reverse-geocode")
+async def reverse_geocode(lat: float, lon: float):
+    return await wrap("OpenStreetMap Nominatim", geocoder.reverse(lat, lon), "DYNAMIC_RECENT", geocoder.source_url)
+
+
+@app.get("/api/weather", response_model=SourceResult)
+async def weather_ep(lat: float, lon: float):
+    return await wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url)
+
+
+@app.get("/api/climate/anomaly")
+async def climate_anomaly_ep(lat: float, lon: float, window_days: int = Query(30, ge=7, le=90), baseline_years: int = Query(5, ge=2, le=15)):
+    try:
+        return await climate_anomaly(weather, lat, lon, window_days, baseline_years)
+    except Exception as e:
+        raise HTTPException(503, str(e))
+
+
+@app.get("/api/satellite/latest", response_model=SourceResult)
+async def sat_ep(lat: float, lon: float, days: int = Query(30, ge=1, le=365), cloud_lt: float = Query(40, ge=0, le=100)):
+    return await wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon, days, cloud_lt), "DYNAMIC_RECENT", copernicus.source_url, 10)
+
+
+@app.get("/api/satellite/sentinel1", response_model=SourceResult)
+async def sentinel1_ep(lat: float, lon: float, days: int = Query(30, ge=1, le=365)):
+    return await wrap("ASF Sentinel-1 Search", s1.latest(lat, lon, days), "DYNAMIC_RECENT", s1.source_url, 10)
+
+
+@app.get("/api/map/satellite-layer")
+async def map_satellite_layer(
+    lat: float, lon: float,
+    mode: str = Query("true_color", pattern="^(true_color|false_color|ndvi|ndmi|nbr|ndwi)$"),
+    days: int = Query(45, ge=1, le=365), cloud_lt: float = Query(50, ge=0, le=100),
+):
+    try:
+        return await satellite_layer(earth, lat, lon, mode, days, cloud_lt)
+    except AdapterError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.get("/api/map/compare")
+async def map_compare(
+    lat: float, lon: float, before_date: str, after_date: str,
+    mode: str = Query("true_color", pattern="^(true_color|false_color|ndvi|ndmi|nbr|ndwi)$"),
+    window_days: int = Query(35, ge=3, le=90), cloud_lt: float = Query(60, ge=0, le=100),
+):
+    try:
+        b = datetime.fromisoformat(before_date).replace(tzinfo=timezone.utc)
+        a = datetime.fromisoformat(after_date).replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(422, "Dates must use YYYY-MM-DD")
+    try:
+        return await compare_layers(earth, lat, lon, b, a, mode, window_days, cloud_lt)
+    except AdapterError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.get("/api/time-machine")
+async def time_machine(
+    lat: float, lon: float, start: str, end: str,
+    cloud_lt: float = Query(60, ge=0, le=100), limit: int = Query(50, ge=1, le=100),
+):
+    try:
+        s = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
+        e = datetime.fromisoformat(end).replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(422, "start/end must use YYYY-MM-DD")
+    data = await earth.search(lat, lon, s, e, cloud_lt=cloud_lt, limit=limit)
+    scenes=[]
+    for f in data.get("features", []):
+        p=f.get("properties") or {}
+        spec=earth.tile_spec(f,"true_color")
+        scenes.append({
+            "id": f.get("id"), "datetime": p.get("datetime"), "cloud_cover": p.get("eo:cloud_cover"),
+            "bbox": f.get("bbox"), "item_url": earth.item_self_url(f), "tile_url": spec.get("tile_url"),
+        })
+    scenes.sort(key=lambda x: x.get("datetime") or "")
+    return {"count": len(scenes), "scenes": scenes, "source": "Element 84 Earth Search", "label": "DYNAMIC_RECENT"}
+
+
+@app.get("/api/map/gfw-layer")
+def map_gfw_layer(
+    dataset: str = "gfw_integrated_alerts", start_date: str | None = None,
+    end_date: str | None = None, confidence: str = Query("high", pattern="^(low|nominal|high)$"),
+):
+    try:
+        return gfw_layer(gfw, dataset, start_date, end_date, confidence)
+    except AdapterError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/earth-engine/catalog")
+def earth_engine_catalog():
+    return {"layers": ee.catalog(), "requires_auth": True, "source": ee.source_url}
+
+
+@app.get("/api/earth-engine/layer/{layer_id}")
+def earth_engine_layer(layer_id: str, lat: float | None = None, lon: float | None = None, days: int = Query(30, ge=1, le=3650)):
+    try:
+        return ee.tile(layer_id, lat, lon, days)
+    except AdapterError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.get("/api/earth-engine/value/{layer_id}")
+def earth_engine_value(layer_id: str, lat: float, lon: float, days: int = Query(3650, ge=1, le=3650)):
+    try:
+        return ee.sample(layer_id, lat, lon, days)
+    except AdapterError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.get("/api/bhuvan/info")
+def bhuvan_info():
+    return {
+        "source": "ISRO/NRSC Bhuvan", "wms_url": settings.bhuvan_wms_url, "version": "1.1.1",
+        "tile_template": "/api/bhuvan/tile/{z}/{x}/{y}.png?layer=<BhuvanLayerName>",
+        "note": "Use layer names published by the Bhuvan thematic services catalogue. The proxy validates the layer name and preserves Bhuvan as the source.",
+    }
+
+
+@app.get("/api/bhuvan/tile/{z}/{x}/{y}.png")
+async def bhuvan_tile(z: int, x: int, y: int, layer: str):
+    try:
+        data, ctype = await bhuvan.tile(z, x, y, layer)
+        return Response(content=data, media_type=ctype, headers={"Cache-Control":"public, max-age=3600"})
+    except AdapterError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/api/mosdac/info")
+def mosdac_info():
+    return {
+        "source": "ISRO/SAC MOSDAC", "catalog": mosdac.catalog_url, "manual": mosdac.manual_url,
+        "official_client": mosdac.client_url, "search_requires_login": False, "download_requires_login": True,
+        "max_count_per_search": 100, "daily_download_file_limit": 5000,
+        "note": "VanRakshak generates the official mdapi config safely; credentials are never committed to Git.",
+    }
+
+
+@app.get("/api/mosdac/config")
+def mosdac_config(dataset_id: str, start: str = "", end: str = "", count: int = Query(50, ge=1, le=100), bbox: str = ""):
+    try:
+        return mosdac.config(dataset_id, start, end, count, bbox)
+    except AdapterError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/ai/change-model/status")
+def change_model_status_ep():
+    return change_model_status()
+
+
+@app.get("/api/soil", response_model=SourceResult)
+async def soil_ep(lat: float, lon: float):
+    return await wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250)
+
+
+@app.get("/api/human-pressure", response_model=SourceResult)
+async def pressure_ep(lat: float, lon: float, radius_m: int = Query(5000, ge=500, le=25000)):
+    result = await wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon, radius_m), "DYNAMIC_RECENT", overpass.source_url)
+    if result.ok and isinstance(result.data, dict):
+        els = result.data.get("elements", [])
+        result.data = {"count": len(els), "elements": els[:250], "radius_m": radius_m}
     return result
 
-@app.get("/api/fire",response_model=SourceResult)
-async def fire_ep(lat:float,lon:float,days:int=Query(1,ge=1,le=5)):
-    return await wrap("NASA FIRMS VIIRS NOAA-21 NRT",firms.fires(lat,lon,days=days),"LIVE_NRT",firms.source_url)
 
-@app.get("/api/protected-areas",response_model=SourceResult)
-async def protected_ep(page:int=1): return await wrap("Protected Planet API v4",pp.india(page),"REFERENCE",pp.source_url)
+@app.get("/api/fire", response_model=SourceResult)
+async def fire_ep(lat: float, lon: float, days: int = Query(1, ge=1, le=5)):
+    return await wrap("NASA FIRMS VIIRS NOAA-21 NRT", firms.fires(lat, lon, days=days), "LIVE_NRT", firms.source_url)
 
-@app.get("/api/news",response_model=SourceResult)
-async def news_ep(place:str=Query(...,min_length=2),timespan:str="1week"):
-    return await wrap("GDELT DOC 2.0",gdelt.forest_news(place,timespan),"DYNAMIC_RECENT",gdelt.source_url)
 
-@app.get("/api/gfw",response_model=SourceResult)
-async def gfw_ep(): return await wrap("Global Forest Watch",gfw.metadata(),"DYNAMIC_RECENT",gfw.source_url)
+@app.get("/api/protected-areas", response_model=SourceResult)
+async def protected_ep(page: int = 1):
+    return await wrap("Protected Planet API v4", pp.india(page), "REFERENCE", pp.source_url)
+
+
+@app.get("/api/news", response_model=SourceResult)
+async def news_ep(place: str = Query(..., min_length=2), timespan: str = "1week"):
+    return await wrap("GDELT DOC 2.0", gdelt.forest_news(place, timespan), "DYNAMIC_RECENT", gdelt.source_url)
+
+
+@app.get("/api/gfw", response_model=SourceResult)
+async def gfw_ep():
+    return await wrap("Global Forest Watch", gfw.metadata(), "DYNAMIC_RECENT", gfw.source_url)
+
 
 @app.get("/api/investigate")
-async def investigate(lat:float,lon:float,place:str="India"):
-    tasks={
-        "weather":wrap("Open-Meteo",weather.current(lat,lon),"FORECAST",weather.source_url),
-        "satellite":wrap("Copernicus Sentinel-2 L2A STAC",copernicus.latest_sentinel2(lat,lon),"DYNAMIC_RECENT",copernicus.source_url,10),
-        "soil":wrap("SoilGrids",soil.point(lat,lon),"REFERENCE",soil.source_url,250),
-        "human_pressure":wrap("OpenStreetMap / Overpass",overpass.pressure(lat,lon),"DYNAMIC_RECENT",overpass.source_url),
-        "fire":wrap("NASA FIRMS",firms.fires(lat,lon),"LIVE_NRT",firms.source_url),
-        "news":wrap("GDELT",gdelt.forest_news(place),"DYNAMIC_RECENT",gdelt.source_url),
+async def investigate(lat: float, lon: float, place: str = "India"):
+    sources = await investigation_sources(lat, lon, place)
+    return {
+        "location": {"lat": lat, "lon": lon, "place": place}, "sources": sources,
+        "classification_note": "Observed, derived, forecast and AI-estimated data remain visually separated. Probable drivers are not legal proof of causation.",
     }
-    vals=await asyncio.gather(*tasks.values())
-    return {"location":{"lat":lat,"lon":lon,"place":place},"sources":dict(zip(tasks.keys(),[v.model_dump() for v in vals])),"classification_note":"Observed, derived, forecast and AI-estimated data must remain visually separated."}
+
+
+@app.get("/api/forest-profile")
+async def forest_profile(lat: float, lon: float, place: str = "India"):
+    sources = await investigation_sources(lat, lon, place)
+    location = sources.get("reverse_geocode", {}).get("data") or {}
+    address = location.get("address", {}) if isinstance(location, dict) else {}
+    weather_data = (sources.get("weather", {}).get("data") or {}).get("current", {})
+    pressure = sources.get("human_pressure", {}).get("data") or {}
+    fires = sources.get("fire", {}).get("data") or []
+    earth_data = sources.get("earth_search", {}).get("data") or {}
+    scenes = earth_data.get("features", []) if isinstance(earth_data, dict) else []
+    ee_values = {}
+    if settings.google_cloud_project:
+        for lid in ("dynamic_world_trees","srtm_elevation","srtm_slope","srtm_aspect","gedi_agbd","wcmc_carbon_density","worldpop_population","human_modification","wdpa_protected"):
+            try:
+                ee_values[lid] = await asyncio.to_thread(ee.sample, lid, lat, lon, 3650)
+            except Exception as exc:
+                ee_values[lid] = {"error": str(exc)}
+    return {
+        "location": {
+            "lat": lat, "lon": lon, "display_name": location.get("display_name") if isinstance(location, dict) else place,
+            "state": address.get("state"), "district": address.get("state_district") or address.get("county"),
+        },
+        "satellite": {
+            "available_scenes": len(scenes),
+            "latest_scene_time": ((scenes[0].get("properties") or {}).get("datetime") if scenes else None),
+            "resolution_m": 10,
+        },
+        "environment": {
+            "temperature_c": weather_data.get("temperature_2m"), "humidity_pct": weather_data.get("relative_humidity_2m"),
+            "rain_mm": weather_data.get("rain"), "cloud_cover_pct": weather_data.get("cloud_cover"),
+            "wind_kmh": weather_data.get("wind_speed_10m"),
+        },
+        "human_pressure": {
+            "mapped_features": pressure.get("count") if isinstance(pressure, dict) else None,
+            "human_modification_reference": (ee_values.get("human_modification") or {}).get("value"),
+            "population_reference": (ee_values.get("worldpop_population") or {}).get("value"),
+        },
+        "fire": {"detections_in_window": len(fires) if isinstance(fires, list) else None, "configured": sources.get("fire", {}).get("ok", False)},
+        "forest": {
+            "dynamic_world_tree_probability": (ee_values.get("dynamic_world_trees") or {}).get("value"),
+            "gedi_agbd_mg_per_ha": (ee_values.get("gedi_agbd") or {}).get("value"),
+            "carbon_density_t_per_ha_reference": (ee_values.get("wcmc_carbon_density") or {}).get("value"),
+        },
+        "terrain": {
+            "elevation_m": (ee_values.get("srtm_elevation") or {}).get("value"),
+            "slope_deg": (ee_values.get("srtm_slope") or {}).get("value"),
+            "aspect_deg": (ee_values.get("srtm_aspect") or {}).get("value"),
+        },
+        "conservation": ee_values.get("wdpa_protected"),
+        "soil": sources.get("soil"),
+        "earth_engine": {"configured": bool(settings.google_cloud_project), "values": ee_values},
+        "provenance": {k: v.get("provenance") for k, v in sources.items()},
+        "raw_sources": sources,
+        "note": "Earth Engine-backed canopy, terrain, biomass, carbon, population and protected-area fields are populated only when authenticated; absent values are not fabricated.",
+    }
+
+
+@app.post("/api/investigations/persist")
+def persist_investigation(req: PersistInvestigationRequest):
+    try:
+        from app.db import SessionLocal, InvestigationRecord
+        with SessionLocal() as db:
+            rec = InvestigationRecord(lat=req.lat, lon=req.lon, place=req.place, payload=req.payload)
+            db.add(rec); db.commit(); db.refresh(rec)
+            return {"id": rec.id, "stored": True}
+    except Exception as e:
+        raise HTTPException(503, f"Persistence unavailable: {e}")
+
 
 @app.post("/api/intelligence/risk")
-def risk_ep(x:RiskInputs): return risk_score(x)
+def risk_ep(x: RiskInputs): return risk_score(x)
 
 @app.post("/api/intelligence/cascade")
-def cascade_ep(x:RiskInputs): return cascade(x)
+def cascade_ep(x: RiskInputs): return cascade(x)
 
 @app.post("/api/intelligence/resilience")
-def resilience_ep(x:RiskInputs): return resilience(x)
+def resilience_ep(x: RiskInputs): return resilience(x)
 
 @app.post("/api/intelligence/intervention")
-def intervention_ep(x:RiskInputs): return {"recommendations":intervention(x),"label":"AI_ESTIMATE"}
+def intervention_ep(x: RiskInputs): return {"recommendations": intervention(x), "label": "AI_ESTIMATE"}
 
 @app.post("/api/intelligence/what-if")
-def what_if(req:WhatIfRequest):
-    b=req.base.model_copy(deep=True)
-    b.temp_anomaly_c=max(0,min(10,b.temp_anomaly_c+req.temperature_delta_c))
-    b.rainfall_deficit_pct=max(0,min(100,b.rainfall_deficit_pct+req.rainfall_delta_pct))
-    b.fire_signal=max(0,min(1,b.fire_signal+req.fire_delta))
-    b.ndvi_drop=max(0,min(1,b.ndvi_drop+req.ndvi_delta))
-    return {"baseline":risk_score(req.base),"scenario":risk_score(b),"scenario_inputs":b.model_dump(),"label":"AI_ESTIMATE"}
+def what_if(req: WhatIfRequest):
+    b = req.base.model_copy(deep=True)
+    b.temp_anomaly_c = max(0, min(10, b.temp_anomaly_c + req.temperature_delta_c))
+    b.rainfall_deficit_pct = max(0, min(100, b.rainfall_deficit_pct + req.rainfall_delta_pct))
+    b.fire_signal = max(0, min(1, b.fire_signal + req.fire_delta))
+    b.ndvi_drop = max(0, min(1, b.ndvi_drop + req.ndvi_delta))
+    return {"baseline": risk_score(req.base), "scenario": risk_score(b), "scenario_inputs": b.model_dump(), "label": "AI_ESTIMATE"}
+
+@app.post("/api/intelligence/predict")
+def prediction_ep(req: ThreatPredictionRequest):
+    try: return predict_threat(req)
+    except ValueError as e: raise HTTPException(422, str(e))
+
+@app.get("/api/intelligence/predict-location")
+async def predict_location_ep(
+    lat: float, lon: float, start: str, end: str, max_observations: int = Query(8, ge=3, le=16), cloud_lt: float = Query(50, ge=0, le=100),
+):
+    series=await vegetation_series_ep(lat,lon,start,end,max_observations,cloud_lt,1.5)
+    rows=series["observations"]
+    valid=[x for x in rows if x.get("mean_ndvi") is not None and x.get("forest_fraction") is not None]
+    if len(valid)<3: raise HTTPException(422,"At least three valid satellite observations are required")
+    n=min(2,len(valid)); base_nd=sum(x["mean_ndvi"] for x in valid[:n])/n; base_fc=sum(x["forest_fraction"] for x in valid[:n])/n
+    risk_values=[]
+    for x in valid:
+        nd=max(0,min(1,(base_nd-x["mean_ndvi"])/0.4))
+        fc=max(0,min(1,(base_fc-x["forest_fraction"])/0.30))
+        risk_values.append(round((nd*.55+fc*.45)*100,2))
+    req=ThreatPredictionRequest(values=risk_values,dates=[(x.get("datetime") or "")[:10] for x in valid],steps=3,floor=0,ceiling=100)
+    projection=predict_threat(req)
+    return {"historical_risk_proxy":risk_values,"dates":req.dates,"projection":projection,"source_series":valid,"label":"AI_ESTIMATE","warning":"Risk proxy is derived from optical vegetation/forest-fraction decline and projected with a transparent trend baseline. It is not a probability of illegal deforestation."}
 
 
 @app.post("/api/intelligence/forest-doctor")
-def forest_doctor_ep(x:ForestDoctorInputs): return forest_doctor(x)
+def forest_doctor_ep(x: ForestDoctorInputs): return forest_doctor(x)
 
 @app.post("/api/intelligence/recovery")
-def recovery_ep(x:RecoveryInputs): return recovery(x)
+def recovery_ep(x: RecoveryInputs): return recovery(x)
 
 @app.post("/api/intelligence/correlation")
-def correlation_ep(x:CorrelationInputs):
+def correlation_ep(x: CorrelationInputs):
     try: return correlations(x)
-    except ValueError as e: raise HTTPException(422,str(e))
+    except ValueError as e: raise HTTPException(422, str(e))
 
 @app.post("/api/intelligence/compare-regions")
-def compare_ep(x:RegionComparisonRequest): return compare_regions(x)
+def compare_ep(x: RegionComparisonRequest): return compare_regions(x)
 
 @app.post("/api/intelligence/anomaly-radar")
-def anomaly_ep(signals:dict[str,float]): return anomaly_radar(signals)
+def anomaly_ep(signals: dict[str, float]): return anomaly_radar(signals)
+
 
 @app.post("/api/analysis/ndvi-change")
-async def ndvi_change_ep(before:UploadFile=File(...),after:UploadFile=File(...),threshold:float=Query(.2,ge=.01,le=1)):
-    try: return ndvi_change(await before.read(),await after.read(),threshold)
-    except RasterInputError as e: raise HTTPException(422,str(e))
+async def ndvi_change_ep(before: UploadFile = File(...), after: UploadFile = File(...), threshold: float = Query(.2, ge=.01, le=1)):
+    try: return ndvi_change(await before.read(), await after.read(), threshold)
+    except RasterInputError as e: raise HTTPException(422, str(e))
+
+
+@app.get("/api/analysis/remote-change")
+async def remote_change_ep(
+    lat: float, lon: float, before_date: str, after_date: str,
+    radius_km: float = Query(2.0, ge=.2, le=10), ndvi_drop_threshold: float = Query(.2, ge=.05, le=.8),
+    forest_ndvi_threshold: float = Query(.45, ge=0, le=.9), cloud_lt: float = Query(60, ge=0, le=100),
+):
+    try:
+        bdate=datetime.fromisoformat(before_date).replace(tzinfo=timezone.utc)
+        adate=datetime.fromisoformat(after_date).replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(422,"Dates must use YYYY-MM-DD")
+    before=await earth.closest_scene(lat,lon,bdate,35,cloud_lt)
+    after=await earth.closest_scene(lat,lon,adate,35,cloud_lt)
+    if not before or not after:
+        raise HTTPException(404,"Could not find suitable Sentinel-2 scenes for both dates")
+    try:
+        return await asyncio.to_thread(remote_change_analyze,before,after,lat,lon,radius_km,ndvi_drop_threshold,forest_ndvi_threshold)
+    except Exception as e:
+        raise HTTPException(503,f"Remote Sentinel analysis failed: {e}")
+
+
+@app.get("/api/analysis/evidence-chain")
+async def evidence_chain_ep(
+    lat: float, lon: float, place: str = "India", before_date: str | None = None, after_date: str | None = None,
+    radius_km: float = Query(2.0, ge=.2, le=10), cloud_lt: float = Query(60, ge=0, le=100),
+):
+    sources = await investigation_sources(lat, lon, place)
+    climate = None
+    try:
+        climate = await climate_anomaly(weather, lat, lon, 30, 5)
+    except Exception:
+        climate = None
+    change = None
+    if before_date and after_date:
+        try:
+            bdate=datetime.fromisoformat(before_date).replace(tzinfo=timezone.utc)
+            adate=datetime.fromisoformat(after_date).replace(tzinfo=timezone.utc)
+            before=await earth.closest_scene(lat,lon,bdate,35,cloud_lt)
+            after=await earth.closest_scene(lat,lon,adate,35,cloud_lt)
+            if before and after:
+                change=await asyncio.to_thread(remote_change_analyze,before,after,lat,lon,radius_km,.2,.45)
+        except Exception:
+            change=None
+    protected=None; carbon=None
+    if settings.google_cloud_project:
+        try:
+            pa=await asyncio.to_thread(ee.sample,"wdpa_protected",lat,lon,3650)
+            protected=bool(pa.get("inside_protected_area")); sources["protected_area_ee"]={"ok":True,"data":pa,"provenance":prov("UNEP-WCMC WDPA / Earth Engine","REFERENCE",ee.source_url).model_dump(),"error":None}
+        except Exception as exc:
+            sources["protected_area_ee"]={"ok":False,"data":None,"provenance":prov("UNEP-WCMC WDPA / Earth Engine","REFERENCE",ee.source_url).model_dump(),"error":str(exc)}
+        if change and change.get("candidate_area_ha") is not None:
+            try:
+                cd=await asyncio.to_thread(ee.sample,"wcmc_carbon_density",lat,lon,3650)
+                density=cd.get("value")
+                if density is not None:
+                    tc=float(change["candidate_area_ha"])*float(density)
+                    carbon={"reference_carbon_density_tC_per_ha":density,"estimated_carbon_loss_tC":round(tc,2),"estimated_co2e_t":round(tc*44/12,2),"uncertainty_note":"Reference carbon-density layer circa 2010; this is an order-of-magnitude impact estimate, not a field inventory.","label":"AI_ESTIMATE"}
+            except Exception:
+                carbon=None
+    chain=build_chain(sources,change,climate)
+    warning=partial_risk(change,sources,climate,protected)
+    doctor=None
+    pctx=pressure_context(sources.get("human_pressure") or {},lat,lon)
+    if change:
+        fire=sources.get("fire") or {}
+        fire_signal=min(1,len(fire.get("data") or [])/10) if fire.get("ok") else 0
+        drought=min(1,max(0,(climate or {}).get("rainfall_deficit_pct") or 0)/70)
+        frag=change.get("fragmentation") or {}; fchg=frag.get("change") or {}
+        radar_available=((sources.get("sentinel1") or {}).get("ok") is True)
+        doctor=forest_doctor(ForestDoctorInputs(
+            ndvi_drop=min(1,max(0,-(change.get("mean_ndvi_change") or 0))),
+            fire_signal=fire_signal, drought_severity=drought,
+            road_proximity_km=pctx.get("nearest_road_km"), settlement_proximity_km=pctx.get("nearest_settlement_km"),
+            mining_or_quarry_nearby=pctx.get("mining_or_quarry_nearby",False),
+            landcover_to_crop=0, radar_change=0,
+        ))
+        doctor["availability_note"]="Land-cover-to-crop and measured Sentinel-1 change are left neutral until those measurements are computed; radar scene availability alone is not treated as radar confirmation."
+        doctor["human_pressure_context"]=pctx
+        doctor["radar_scene_available"]=radar_available
+        doctor["fragmentation_change"]=fchg
+    return {"location":{"lat":lat,"lon":lon,"place":place},"change":change,"climate":climate,"carbon":carbon,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
+
+
+@app.get("/api/analysis/vegetation-series")
+async def vegetation_series_ep(
+    lat: float, lon: float, start: str, end: str, max_observations: int = Query(8, ge=3, le=16),
+    cloud_lt: float = Query(50, ge=0, le=100), radius_km: float = Query(1.5, ge=.2, le=5),
+):
+    try:
+        sdate=datetime.fromisoformat(start).replace(tzinfo=timezone.utc); edate=datetime.fromisoformat(end).replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(422,"start/end must use YYYY-MM-DD")
+    if edate <= sdate: raise HTTPException(422,"end must be after start")
+    data=await earth.search(lat,lon,sdate,edate,cloud_lt=cloud_lt,limit=100)
+    feats=sorted(data.get("features") or [],key=lambda f:(f.get("properties") or {}).get("datetime") or "")
+    if not feats: raise HTTPException(404,"No suitable Sentinel-2 scenes found")
+    if len(feats)>max_observations:
+        import numpy as np
+        idx=np.linspace(0,len(feats)-1,max_observations).round().astype(int)
+        feats=[feats[int(i)] for i in sorted(set(idx.tolist()))]
+    rows=[]; errors=[]
+    for f in feats:
+        try: rows.append(await asyncio.to_thread(scene_summary,f,lat,lon,radius_km,.45))
+        except Exception as exc: errors.append({"scene":f.get("id"),"error":str(exc)})
+    if len(rows)<2: raise HTTPException(503,"Too few Sentinel-2 scenes could be read for a time series")
+    return {"source":"Sentinel-2 L2A / Earth Search","observations":rows,"errors":errors,"label":"DERIVED_METRIC"}
+
+
+@app.get("/api/analysis/recovery-location")
+async def recovery_location_ep(
+    lat: float, lon: float, start: str, end: str, max_observations: int = Query(8, ge=3, le=16),
+    cloud_lt: float = Query(50, ge=0, le=100), radius_km: float = Query(1.5, ge=.2, le=5),
+):
+    series=await vegetation_series_ep(lat,lon,start,end,max_observations,cloud_lt,radius_km)
+    result=recovery_from_series(series["observations"])
+    return {"recovery":result,"series":series,"warning":"Recovery is inferred from optical vegetation/forest-mask trends. Cloud/season effects and field conditions must be reviewed."}
+
+
+@app.get("/api/analysis/climate-forest-correlation")
+async def climate_forest_correlation_ep(
+    lat: float, lon: float, start: str, end: str, max_observations: int = Query(8, ge=3, le=16),
+    cloud_lt: float = Query(50, ge=0, le=100), radius_km: float = Query(1.5, ge=.2, le=5),
+):
+    import numpy as np
+    series=await vegetation_series_ep(lat,lon,start,end,max_observations,cloud_lt,radius_km)
+    hist=await weather.historical_daily(lat,lon,start,end)
+    daily=hist.get("daily") or {}; times=daily.get("time") or []; temps=daily.get("temperature_2m_mean") or []; rains=daily.get("precipitation_sum") or []
+    lookup={d:(t,r) for d,t,r in zip(times,temps,rains) if t is not None and r is not None}
+    rows=[]
+    for obs in series["observations"]:
+        day=(obs.get("datetime") or "")[:10]
+        if day in lookup and obs.get("mean_ndvi") is not None and obs.get("forest_fraction") is not None:
+            t,r=lookup[day]; rows.append({"date":day,"temperature_c":float(t),"rainfall_mm":float(r),"ndvi":float(obs["mean_ndvi"]),"forest_fraction":float(obs["forest_fraction"])})
+    if len(rows)<3: raise HTTPException(422,"At least three date-matched climate/satellite observations are required")
+    def corr(a,b):
+        aa=np.array([x[a] for x in rows]); bb=np.array([x[b] for x in rows])
+        return None if np.std(aa)==0 or np.std(bb)==0 else round(float(np.corrcoef(aa,bb)[0,1]),3)
+    return {"observations":rows,"pearson":{"temperature__ndvi":corr("temperature_c","ndvi"),"rainfall__ndvi":corr("rainfall_mm","ndvi"),"temperature__forest_fraction":corr("temperature_c","forest_fraction"),"rainfall__forest_fraction":corr("rainfall_mm","forest_fraction")},"label":"DERIVED_METRIC","warning":"Correlation is descriptive and does not establish causation."}
+
+
+@app.post("/api/analysis/fragmentation")
+async def fragmentation_ep(raster: UploadFile = File(...), threshold: float = Query(.5, ge=0, le=1)):
+    try: return fragmentation_metrics(await raster.read(), threshold)
+    except (FragmentationInputError, Exception) as e:
+        raise HTTPException(422, str(e))
+
 
 @app.post("/api/carbon")
-def carbon_ep(req:CarbonRequest): return carbon_estimate(req)
+def carbon_ep(req: CarbonRequest): return carbon_estimate(req)
 
 @app.post("/api/patrol")
-def patrol_ep(req:PatrolRequest): return patrol_optimize(req)
+def patrol_ep(req: PatrolRequest): return patrol_optimize(req)
+
+@app.post("/api/patrol/road-route")
+async def patrol_road_route(req: PatrolRequest):
+    ordering = patrol_optimize(req)
+    points=[(req.start_lat, req.start_lon)] + [(x["lat"],x["lon"]) for x in ordering["route"]]
+    try:
+        road=await osrm.route(points)
+        return {"ordering":ordering,"road_route":road,"warning":"OSM road/track completeness varies in forests. Verify patrol accessibility in the field."}
+    except Exception as e:
+        return {"ordering":ordering,"road_route":None,"routing_error":str(e),"warning":"Road routing unavailable; straight-line priority ordering retained."}
 
 @app.get("/api/query")
-def nl_query(q:str=Query(...,min_length=3)): return parse_nl(q)
+def nl_query(q: str = Query(..., min_length=3)): return parse_nl(q)
+
+
+@app.get("/api/report/investigation")
+async def automatic_investigation_report(
+    lat: float, lon: float, place: str = "India", before_date: str | None = None, after_date: str | None = None,
+):
+    data=await evidence_chain_ep(lat,lon,place,before_date,after_date,2.0,60)
+    data["title"]="VanRakshak AI — Forest Investigation Report"
+    return Response(investigation_pdf(data),media_type="application/pdf",headers={"Content-Disposition":"attachment; filename=vanrakshak-investigation-report.pdf"})
+
 
 @app.post("/api/report")
-def report(payload:dict):
-    title=payload.get("title","VanRakshak Investigation Report")
-    lines=[f"Generated: {datetime.now(timezone.utc).isoformat()}"]
-    for k,v in payload.items():
-        if k!="title": lines.append(f"{k}: {json.dumps(v,ensure_ascii=False) if isinstance(v,(dict,list)) else v}")
-    return Response(pdf_report(title,lines),media_type="application/pdf",headers={"Content-Disposition":"attachment; filename=vanrakshak-report.pdf"})
+def report(payload: dict):
+    title = payload.get("title", "VanRakshak Investigation Report")
+    lines = [f"Generated: {datetime.now(timezone.utc).isoformat()}"]
+    for k, v in payload.items():
+        if k != "title": lines.append(f"{k}: {json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v}")
+    return Response(pdf_report(title, lines), media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=vanrakshak-report.pdf"})
 
-PROJECT_ROOT=Path(__file__).resolve().parents[2]
-WEB=PROJECT_ROOT/"web"
-if not WEB.exists():
-    WEB=Path("/web")
-if WEB.exists():
-    app.mount("/static",StaticFiles(directory=str(WEB)),name="static")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+WEB = PROJECT_ROOT / "web"
+if not WEB.exists(): WEB = Path("/web")
+if WEB.exists(): app.mount("/static", StaticFiles(directory=str(WEB)), name="static")
 
 @app.get("/")
 def root():
-    p=WEB/"index.html"
-    return FileResponse(str(p)) if p.exists() else {"message":"VanRakshak AI API","docs":"/docs"}
+    p = WEB / "index.html"
+    return FileResponse(str(p)) if p.exists() else {"message": "VanRakshak AI API", "docs": "/docs"}

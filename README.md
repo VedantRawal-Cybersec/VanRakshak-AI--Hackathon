@@ -1,99 +1,176 @@
-# 🌿 VanRakshak AI
+# 🌿 VanRakshak AI — Satellite Forest Intelligence Command Center
 
-**India-first satellite forest intelligence and early-warning command center.**
+**VanRakshak AI** is an India-first forest monitoring, investigation and early-warning platform for the DATUM Hackathon climate/environment problem **Satellite-Based Deforestation Monitoring**.
 
-VanRakshak AI combines Earth-observation catalogues, forest alerts, weather, fire, soil, human-pressure, protected-area and news/context signals into a single explainable workflow for forest monitoring and investigation.
+The system combines real Earth-observation catalogues, Sentinel imagery, forest alerts, multispectral analysis, weather/climate, fire, soil, terrain, protected-area context, human-pressure evidence, news context and explainable intelligence in one map-first command center.
 
-> This repository is designed to never fabricate environmental observations. External sources that require credentials are reported as **not configured** until the appropriate key/token is supplied.
+> **Data integrity rule:** VanRakshak never substitutes fabricated environmental values when a provider is unavailable. Every source-backed value retains provenance/freshness, and predictions are labelled as estimates rather than facts.
 
-## What works in this build
+## Current build
 
-- India-first MapLibre command-center UI.
-- Dynamic Earth-data layer/filter registry covering satellite, forest, vegetation, fire, climate, drought, soil, terrain, human pressure, conservation and carbon.
-- Copernicus Data Space STAC search for recent Sentinel-2 L2A scene metadata.
-- Open-Meteo current/forecast weather + soil-moisture variables.
-- SoilGrids point soil-property integration.
-- OpenStreetMap Overpass human-pressure search.
-- NASA FIRMS VIIRS NOAA-21 NRT fire adapter when `FIRMS_MAP_KEY` is configured.
-- Protected Planet v4 adapter when `PROTECTED_PLANET_TOKEN` is configured.
-- GDELT recent forest-related news/context adapter.
-- Multi-source deep-region investigation endpoint.
-- Explainable warning/risk engine.
-- Threat cascade engine.
-- Forest resilience estimate.
-- What-if simulation.
-- Carbon-loss estimator with uncertainty range.
-- Patrol-point prioritization/route ordering baseline.
-- Natural-language-to-structured Earth filter parser.
-- Automatic PDF investigation report generation.
-- API provenance/freshness labels and graceful source failures.
-- 37-feature product registry.
+- **37/37 requested product capabilities have implementation paths and API/UI hooks.**
+- **Real Sentinel-2 catalogue + visual tiles** through Copernicus Data Space and Element 84 Earth Search.
+- **Sentinel-1 search** through ASF for radar-scene availability.
+- **True color / false color / NDVI / NDMI / NBR / NDWI** map modes through TiTiler STAC rendering.
+- **Before ↔ After comparison** with synchronized real scenes and split-slider UI.
+- **Forest Time Machine** over historical Sentinel-2 observations.
+- **Remote change analysis** using cloud-masked multispectral Sentinel-2 pixels, forest-conditioned vegetation decline, fragmentation metrics and anomaly corroboration.
+- **Earth Engine layer catalogue** for Dynamic World, Hansen loss, SRTM terrain, JRC water, MODIS LST/burned area, CHIRPS rainfall, GEDI biomass, population/human-modification and protected areas when authenticated.
+- **Global Forest Watch integrated-alert tiles** with date/confidence filtering.
+- **NASA FIRMS NRT fire adapter**, **Open-Meteo**, **SoilGrids**, **OSM/Overpass**, **Protected Planet**, **GDELT**, **ISRO Bhuvan**, and **MOSDAC integration helpers**.
+- **Forest Digital Profile**, **Evidence Chain**, **AI Forest Doctor**, **smart warning**, **threat cascade**, **resilience/recovery**, **threat projection**, **what-if simulation**, **regional comparison**, **climate–forest correlation**, **carbon estimate**, **patrol routing**, **automatic PDF report**.
+- **PostGIS persistence**, **Redis/Celery workers**, **TiTiler**, Docker Compose and GitHub Actions CI.
 
-## Important production boundaries
+## 37 feature implementation matrix
 
-A few parts require deployment credentials or trained model artefacts:
+| # | Capability | Runtime status | Main endpoint(s) |
+|---:|---|---|---|
+| 1 | Real Satellite Monitoring | `WORKING` | /api/satellite/latest<br>/api/map/satellite-layer |
+| 2 | Forest Cover Monitoring | `WORKING_WITH_OPTIONAL_EE` | /api/layers<br>/api/earth-engine/layer/dynamic_world_trees |
+| 3 | AI Deforestation Detection | `WORKING_BASELINE_DEEP_MODEL_OPTIONAL` | /api/analysis/remote-change<br>/api/ai/change-model/status |
+| 4 | Before–After Satellite Comparison | `WORKING` | /api/map/compare<br>/api/analysis/remote-change |
+| 5 | Multi-Spectral Analysis | `WORKING` | /api/map/satellite-layer<br>/api/analysis/remote-change |
+| 6 | Multi-Layer Earth Map | `WORKING` | /api/layers<br>/api/map/gfw-layer<br>/api/earth-engine/layer/{layer_id}<br>/api/bhuvan/tile/{z}/{x}/{y}.png |
+| 7 | Deep Region Investigation | `WORKING` | /api/investigate<br>/api/analysis/evidence-chain |
+| 8 | Temperature Intelligence | `WORKING` | /api/weather<br>/api/climate/anomaly |
+| 9 | Weather Intelligence | `WORKING` | /api/weather |
+| 10 | Drought & Water Stress | `WORKING` | /api/climate/anomaly<br>/api/weather<br>/api/earth-engine/layer/jrc_water_occurrence |
+| 11 | Fire & Heat Detection | `CREDENTIAL_GATED` | /api/fire<br>/api/earth-engine/layer/modis_burned_area |
+| 12 | Vegetation Health | `WORKING` | /api/analysis/vegetation-series<br>/api/map/satellite-layer?mode=ndvi |
+| 13 | Environmental Anomaly Radar | `WORKING` | /api/intelligence/anomaly-radar<br>/api/climate/anomaly |
+| 14 | AI Forest Doctor | `WORKING` | /api/intelligence/forest-doctor<br>/api/analysis/evidence-chain |
+| 15 | Smart Warning System | `WORKING` | /api/intelligence/risk<br>/api/analysis/evidence-chain |
+| 16 | Threat Prediction | `WORKING_BASELINE` | /api/intelligence/predict<br>/api/intelligence/predict-location |
+| 17 | Threat Cascade Engine | `WORKING` | /api/intelligence/cascade |
+| 18 | AI Priority Engine | `WORKING` | /api/intelligence/risk<br>/api/intelligence/compare-regions |
+| 19 | Investigation/Patrol Optimizer | `WORKING` | /api/patrol<br>/api/patrol/road-route |
+| 20 | AI What-If Simulator | `WORKING` | /api/intelligence/what-if |
+| 21 | Intervention Engine | `WORKING` | /api/intelligence/intervention |
+| 22 | Recovery Intelligence | `WORKING` | /api/intelligence/recovery<br>/api/analysis/recovery-location |
+| 23 | Recovery Exit Conditions | `WORKING` | /api/intelligence/recovery<br>/api/analysis/recovery-location |
+| 24 | Forest Resilience Score | `WORKING` | /api/intelligence/resilience |
+| 25 | Protected Area Intelligence | `WORKING_WITH_AUTH_OPTIONS` | /api/protected-areas<br>/api/earth-engine/value/wdpa_protected |
+| 26 | Forest Fragmentation Analysis | `WORKING` | /api/analysis/fragmentation<br>/api/analysis/remote-change |
+| 27 | Carbon Loss Calculator | `WORKING` | /api/carbon<br>/api/analysis/evidence-chain |
+| 28 | Climate–Forest Correlation | `WORKING` | /api/intelligence/correlation<br>/api/analysis/climate-forest-correlation |
+| 29 | AI Evidence Chain | `WORKING` | /api/analysis/evidence-chain |
+| 30 | Explainable AI | `WORKING` | /api/intelligence/risk<br>/api/analysis/evidence-chain |
+| 31 | Natural-Language Earth Query | `WORKING` | /api/query |
+| 32 | Automatic Investigation Report | `WORKING` | /api/report<br>/api/report/investigation |
+| 33 | Regional Threat Comparison | `WORKING` | /api/intelligence/compare-regions |
+| 34 | Forest Time Machine | `WORKING` | /api/time-machine |
+| 35 | Live Command Center | `WORKING` | /<br>/api/health |
+| 36 | Forest Digital Profile | `WORKING` | /api/forest-profile |
+| 37 | News & Internet Intelligence | `WORKING` | /api/news<br>/api/analysis/evidence-chain |
 
-- **NASA FIRMS:** free MAP key.
-- **Protected Planet:** API v4 token.
-- **Google Earth Engine / Dynamic World direct API:** Google Cloud/Earth Engine project authentication if you enable a direct EE adapter.
-- **Sentinel imagery pixels / on-map multispectral rendering:** connect a sanctioned download/processing route (Copernicus/Sentinel Hub/ODC-STAC) and tile generated COGs with TiTiler. This repository already provides the catalogue and layer architecture; large raster processing belongs in workers.
-- **Open-CD production deforestation model:** train/evaluate against a geographic holdout set and place the selected model checkpoint in your deployment. Do not publish fake accuracy.
-- **Road-network patrol routing:** the included baseline works without a routing server; integrate GraphHopper/OR-Tools for actual road/track routing.
+Statuses such as `CREDENTIAL_GATED` are intentional: the integration code exists, but the external provider legally/technically requires a user-owned credential. A missing credential is shown as unavailable rather than replaced with fake data.
 
 ## Quick start
 
+### Local API + dashboard
+
 ```bash
-cd vanrakshak-ai
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+pip install -r backend/requirements.txt
 cp .env.example .env
-cd backend
-PYTHONPATH=. uvicorn app.main:app --reload --port 8000
+PYTHONPATH=backend uvicorn app.main:app --reload --port 8000
 ```
 
-Open: `http://localhost:8000`
+Open `http://localhost:8000` and API docs at `http://localhost:8000/docs`.
 
-API docs: `http://localhost:8000/docs`
-
-### Run tests
-
-```bash
-cd vanrakshak-ai
-PYTHONPATH=backend pytest -q backend/tests
-```
-
-### Docker
+### Production-style Docker stack
 
 ```bash
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up --build
 ```
 
-## Core endpoints
+Services:
 
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/health` | Runtime health |
-| `GET /api/features` | All 37 required features |
-| `GET /api/layers` | Layer/filter registry |
-| `GET /api/satellite/latest` | Latest Sentinel-2 L2A catalogue scenes |
-| `GET /api/weather` | Open-Meteo weather/environment |
-| `GET /api/soil` | SoilGrids properties |
-| `GET /api/fire` | NASA FIRMS fire detections |
-| `GET /api/human-pressure` | OSM/Overpass roads/settlements/industry |
-| `GET /api/news` | GDELT contextual news |
-| `GET /api/investigate` | Multi-source region investigation |
-| `POST /api/intelligence/risk` | Explainable warning/priority score |
-| `POST /api/intelligence/cascade` | Threat cascade |
-| `POST /api/intelligence/resilience` | Forest resilience estimate |
-| `POST /api/intelligence/what-if` | Scenario simulation |
-| `POST /api/intelligence/intervention` | Intervention suggestions |
-| `POST /api/carbon` | Carbon-impact estimate |
-| `POST /api/patrol` | Patrol ordering baseline |
-| `GET /api/query` | Natural-language filter parsing |
-| `POST /api/report` | PDF report |
+- API/dashboard: `http://localhost:8000`
+- TiTiler: `http://localhost:8001`
+- PostgreSQL/PostGIS: `localhost:5432`
+- Redis: `localhost:6379`
+- Celery worker + beat scheduler run inside Compose.
 
-## Data-quality labels
+## Credentials you must provide for the corresponding providers
 
-VanRakshak separates data into:
+```env
+FIRMS_MAP_KEY=
+PROTECTED_PLANET_TOKEN=
+GOOGLE_CLOUD_PROJECT=
+# GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+- **FIRMS_MAP_KEY** — enables NASA FIRMS near-real-time fire points.
+- **PROTECTED_PLANET_TOKEN** — enables Protected Planet API v4.
+- **Earth Engine credentials/project** — enables Dynamic World, Hansen, GEDI, SRTM, MODIS, CHIRPS, WDPA and other Google Earth Engine filters.
+- **MOSDAC downloads** — use the official authenticated `mdapi` workflow; credentials are never committed to Git.
+
+## Main operational APIs
+
+```text
+GET  /api/health
+GET  /api/source-health
+GET  /api/features/status
+GET  /api/layers
+GET  /api/geocode
+GET  /api/satellite/latest
+GET  /api/satellite/sentinel1
+GET  /api/map/satellite-layer
+GET  /api/map/compare
+GET  /api/map/gfw-layer
+GET  /api/time-machine
+GET  /api/earth-engine/catalog
+GET  /api/earth-engine/layer/{layer_id}
+GET  /api/bhuvan/info
+GET  /api/mosdac/info
+GET  /api/weather
+GET  /api/climate/anomaly
+GET  /api/soil
+GET  /api/fire
+GET  /api/human-pressure
+GET  /api/news
+GET  /api/investigate
+GET  /api/forest-profile
+GET  /api/analysis/remote-change
+GET  /api/analysis/evidence-chain
+GET  /api/analysis/vegetation-series
+GET  /api/analysis/recovery-location
+GET  /api/analysis/climate-forest-correlation
+POST /api/analysis/fragmentation
+POST /api/intelligence/risk
+POST /api/intelligence/forest-doctor
+POST /api/intelligence/cascade
+POST /api/intelligence/what-if
+POST /api/intelligence/predict
+GET  /api/intelligence/predict-location
+POST /api/patrol/road-route
+GET  /api/report/investigation
+```
+
+## Change-detection policy
+
+VanRakshak has a **working source-backed multispectral baseline**. It does not claim a fake deep-learning accuracy. The optional Open-CD runtime is activated only when a real config/checkpoint has been trained and validated.
+
+Recommended evaluation before presenting a trained model:
+
+```text
+Geographic holdout split
+Precision
+Recall
+F1
+IoU / Dice
+False-positive rate
+Inference time
+Cloud/season robustness
+```
+
+See `ai/opencd/README.md` for the deep-model handoff.
+
+## Data classes shown in the platform
 
 - `LIVE_NRT`
 - `DYNAMIC_RECENT`
@@ -102,28 +179,25 @@ VanRakshak separates data into:
 - `FORECAST`
 - `AI_ESTIMATE`
 
-A delayed satellite image is **never** labelled as continuous live video.
+A Sentinel scene is never described as continuous "live video". Capture timestamps and data-source freshness remain visible.
 
-## Architecture
+## Validation
 
-```text
-Copernicus / ASF / GFW / FIRMS / Open-Meteo / SoilGrids / OSM / GDELT
-                              ↓
-                      Provider adapters
-                              ↓
-                   Validation + provenance
-                              ↓
-                PostGIS / PgSTAC / cache layer
-                              ↓
-              Raster/vector + AI intelligence layer
-                              ↓
-                         FastAPI
-                              ↓
-                  MapLibre command center
+```bash
+PYTHONPATH=backend pytest -q backend/tests
+PYTHONPATH=backend python -m compileall -q backend/app
+node --check web/app.js
 ```
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/FEATURES.md`](docs/FEATURES.md) and [`docs/SOURCES.md`](docs/SOURCES.md).
+## Documentation
+
+- `docs/ARCHITECTURE.md`
+- `docs/FEATURES.md`
+- `docs/SOURCES.md`
+- `docs/DEPLOYMENT.md`
+- `docs/OPENCODE_INSTRUCTIONS.md`
+- `docs/HERMES_INSTRUCTIONS.md`
 
 ## License
 
-MIT for this repository's original code. External datasets/APIs retain their own terms and attribution requirements.
+Original repository code is MIT licensed. Every external API/dataset keeps its own terms, attribution and access requirements.

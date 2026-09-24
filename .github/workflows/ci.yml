@@ -3,12 +3,18 @@ on:
   push:
   pull_request:
 jobs:
-  backend-tests:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          cache: 'pip'
       - run: pip install -r backend/requirements.txt
+      - run: PYTHONPATH=backend python -m compileall -q backend/app
       - run: PYTHONPATH=backend pytest -q backend/tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check web/app.js

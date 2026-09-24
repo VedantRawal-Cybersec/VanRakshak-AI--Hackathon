@@ -92,7 +92,11 @@ def test_dashboard_filters_drive_live_layer_requests():
     assert "start_date" in js and "end_date" in js
     assert "cloudFilter" in js and "confidenceFilter" in js
     assert "scheduleLayerFilterApply" in js and "applyLayerFilters" in js
-    assert "['freshnessFilter','resolutionFilter','cloudFilter','confidenceFilter','startDate','endDate']" in js
+    assert "['freshnessFilter','resolutionFilter','sourceFilter','renderFilter','cloudFilter','confidenceFilter','startDate','endDate']" in js
+    assert "applyFilters" in js and "resetFilters" in js
+    assert "satelliteModeQuick" in js
+    assert "days:'90'" in js
+    assert "maxzoom" in js
     assert "mode=true_color&cloud_lt=60" not in js
     assert "mode=ndvi&cloud_lt=60" not in js
 

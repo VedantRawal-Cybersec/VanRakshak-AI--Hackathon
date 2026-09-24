@@ -1,3 +1,4 @@
+# Real-data-first production capability registry. Missing provider evidence must never be fabricated.
 from __future__ import annotations
 
 FEATURE_CAPABILITIES = [

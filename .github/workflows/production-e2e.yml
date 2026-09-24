@@ -1,0 +1,49 @@
+name: Production E2E
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '31 4 * * *'
+  push:
+    paths:
+      - 'backend/app/**'
+      - 'web/**'
+      - 'config/demo_scenarios.json'
+      - 'tests/e2e/production-smoke.spec.js'
+      - '.github/workflows/production-e2e.yml'
+
+jobs:
+  production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://vanrakshak-api-production-3e28.up.railway.app
+      PRODUCTION_E2E: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - name: Wait for Railway to deploy this revision
+        shell: bash
+        run: |
+          for i in {1..60}; do
+            if curl -fsS "$BASE_URL/api/demo-scenarios" >/tmp/demo.json; then
+              python - <<'PY'
+              import json
+              data=json.load(open('/tmp/demo.json'))
+              raise SystemExit(0 if data.get('count')==5 else 1)
+              PY
+              if [ $? -eq 0 ]; then
+                echo "Production revision is available"
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo "Production did not expose the expected revision in time"
+          exit 1
+      - name: Run production smoke tests
+        run: npx playwright test tests/e2e/production-smoke.spec.js --reporter=line

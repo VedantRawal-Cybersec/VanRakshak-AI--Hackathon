@@ -1,0 +1,53 @@
+name: Provider Smoke Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+
+jobs:
+  provider-smoke:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: backend
+      FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+      GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+      GEE_SERVICE_ACCOUNT_JSON: ${{ secrets.GEE_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+      - run: pip install -r backend/requirements.txt
+      - name: Prepare optional Earth Engine credentials
+        shell: bash
+        run: |
+          if [ -n "${GEE_SERVICE_ACCOUNT_JSON:-}" ]; then
+            printf '%s' "$GEE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/gee-service-account.json"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gee-service-account.json" >> "$GITHUB_ENV"
+          fi
+      - name: Run provider smoke checks
+        shell: bash
+        run: |
+          python - <<'PY'
+          import asyncio, os
+          from app.adapters.firms import FIRMSAdapter
+          from app.adapters.earth_engine import EarthEngineAdapter
+
+          async def main():
+              if os.getenv("FIRMS_MAP_KEY"):
+                  rows = await FIRMSAdapter().fires(12.9716, 77.5946, days=1)
+                  print(f"FIRMS OK: {len(rows)} detection rows returned for sample AOI")
+              else:
+                  print("FIRMS skipped: repository secret FIRMS_MAP_KEY is not configured")
+
+              if os.getenv("GOOGLE_CLOUD_PROJECT") and os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+                  ee = EarthEngineAdapter()
+                  result = ee.sample("srtm_elevation", 12.9716, 77.5946, days=30)
+                  print("Earth Engine OK:", result.get("value"))
+              else:
+                  print("Earth Engine skipped: GOOGLE_CLOUD_PROJECT and/or GEE_SERVICE_ACCOUNT_JSON missing")
+
+          asyncio.run(main())
+          PY

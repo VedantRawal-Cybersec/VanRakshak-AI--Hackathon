@@ -13,21 +13,22 @@
     <header class="topbar">
       <div class="brand"><span class="brand-mark">🌿</span><div><b>VanRakshak AI</b><small>FORESTS TODAY • A SAFER TOMORROW</small></div></div>
       <div class="search-wrap"><input id="searchBox" placeholder="Search forest, state, district or ask AI…"/><button id="searchBtn">Search</button></div>
-      <div class="top-actions"><span class="live-dot"></span><span>Live Data</span><button id="healthBtn" class="ghost">System</button></div>
+      <div class="top-actions"><span class="live-dot"></span><span>Source-backed</span><button id="healthBtn" class="ghost">System</button></div>
     </header>
 
     <aside class="sidebar">
-      <button class="nav active" data-view="map">🗺️ <span>Map</span></button>
-      <button class="nav">🌳 <span>Forest Cover</span></button>
-      <button class="nav">🚨 <span>Alerts</span></button>
-      <button class="nav">📊 <span>Analysis</span></button>
+      <button class="nav active">🗺️ <span>Map</span></button>
+      <button class="nav" id="forestProfileNav">🌳 <span>Forest Profile</span></button>
+      <button class="nav" id="alertsNav">🚨 <span>Alerts</span></button>
+      <button class="nav" id="compareNav">🔄 <span>Before / After</span></button>
+      <button class="nav" id="timeNav">📈 <span>Time Machine</span></button>
       <button class="nav">☁️ <span>Weather</span></button>
       <button class="nav">🔥 <span>Fire & Heat</span></button>
       <button class="nav">🌱 <span>Soil & Terrain</span></button>
-      <button class="nav">🔮 <span>Predictions</span></button>
-      <button class="nav">🚁 <span>Patrol Planner</span></button>
-      <button class="nav">📄 <span>Reports</span></button>
-      <div class="sidebar-bottom"><div class="ai-chip">🤖 AI Forest Doctor</div><small>Click any location on the map to investigate.</small></div>
+      <button class="nav" id="predictionNav">🔮 <span>Predictions</span></button>
+      <button class="nav" id="patrolNav">🚁 <span>Patrol Planner</span></button>
+      <button class="nav" id="reportsNav">📄 <span>Reports</span></button>
+      <div class="sidebar-bottom"><div class="ai-chip">🤖 AI Forest Doctor</div><small>Search or click any location in India.</small></div>
     </aside>
 
     <main class="main">
@@ -40,49 +41,106 @@
           <button id="layersBtn" class="pill layers">+ Layers</button>
         </div>
         <div id="map"></div>
-        <div id="mapStatus" class="map-status">Click India to investigate a region</div>
+        <div id="mapStatus" class="map-status">Search or click India to investigate a region</div>
         <div class="legend-card">
-          <b>VanRakshak status</b>
-          <div><i class="dot green"></i> Source-backed</div>
-          <div><i class="dot amber"></i> Estimate / forecast</div>
+          <b>Data classes</b>
+          <div><i class="dot green"></i> Observed / source-backed</div>
+          <div><i class="dot amber"></i> Forecast / derived</div>
           <div><i class="dot red"></i> Threat / alert</div>
         </div>
       </section>
 
       <section id="inspector" class="inspector hidden">
         <div class="inspector-head"><div><small>DEEP REGION INVESTIGATION</small><h2 id="regionTitle">Selected Region</h2><p id="coords">—</p></div><button id="closeInspector" class="icon-btn">✕</button></div>
-        <div class="tabs"><button class="tab active" data-tab="overview">Overview</button><button class="tab" data-tab="evidence">Evidence</button><button class="tab" data-tab="environment">Environment</button><button class="tab" data-tab="news">News</button></div>
+        <div class="tabs"><button class="tab active" data-tab="overview">Overview</button><button class="tab" data-tab="profile">Profile</button><button class="tab" data-tab="evidence">Evidence</button><button class="tab" data-tab="environment">Environment</button><button class="tab" data-tab="news">News</button></div>
         <div id="tab-overview" class="tab-panel active">
           <div class="metric-grid">
-            <div class="metric"><small>Satellite</small><strong id="mSatellite">Checking…</strong><span id="mSatelliteSub">Copernicus</span></div>
+            <div class="metric"><small>Satellite</small><strong id="mSatellite">Checking…</strong><span id="mSatelliteSub">Sentinel-2</span></div>
             <div class="metric"><small>Weather</small><strong id="mTemp">—</strong><span id="mWeatherSub">Open-Meteo</span></div>
             <div class="metric"><small>Fire</small><strong id="mFire">—</strong><span id="mFireSub">NASA FIRMS</span></div>
             <div class="metric"><small>Soil</small><strong id="mSoil">—</strong><span id="mSoilSub">SoilGrids</span></div>
           </div>
           <div class="card"><h3>AI Evidence Chain</h3><div id="evidenceChain" class="evidence-list"><p>Waiting for source data…</p></div></div>
-          <div class="action-row"><button id="riskDemoBtn" class="primary">Run Explainable Risk</button><button id="reportBtn" class="secondary">Generate Report</button></div>
+          <div class="action-row"><button id="riskDemoBtn" class="primary">Run Explainable Risk</button><button id="compareBtn" class="secondary">Before / After</button><button id="reportBtn" class="secondary">Report</button></div>
         </div>
+        <div id="tab-profile" class="tab-panel"><div id="profilePanel" class="card">Select a location to load the Forest Digital Profile.</div></div>
         <div id="tab-evidence" class="tab-panel"><div id="evidenceRaw" class="card code-card">No evidence loaded.</div></div>
         <div id="tab-environment" class="tab-panel"><div id="environmentPanel" class="card">No environmental data loaded.</div></div>
         <div id="tab-news" class="tab-panel"><div id="newsPanel" class="card">Search a named place above to load contextual news.</div></div>
       </section>
 
       <section class="analytics-strip">
-        <div class="status-card"><span>🛰️</span><div><small>Satellite</small><b>Copernicus STAC</b><em id="satHealth">Ready</em></div></div>
-        <div class="status-card"><span>🔥</span><div><small>Fire</small><b>NASA FIRMS</b><em id="fireHealth">Key required</em></div></div>
-        <div class="status-card"><span>🌦️</span><div><small>Weather</small><b>Open-Meteo</b><em>Live API</em></div></div>
-        <div class="status-card"><span>🌱</span><div><small>Soil</small><b>SoilGrids</b><em>Reference</em></div></div>
+        <div class="status-card"><span>🛰️</span><div><small>Satellite</small><b>Copernicus + Earth Search</b><em id="satHealth">Ready</em></div></div>
+        <div class="status-card"><span>🌳</span><div><small>Forest alerts</small><b>Global Forest Watch</b><em id="gfwHealth">Public tiles</em></div></div>
+        <div class="status-card"><span>🔥</span><div><small>Fire</small><b>NASA FIRMS</b><em id="fireHealth">Key status</em></div></div>
+        <div class="status-card"><span>🌦️</span><div><small>Weather</small><b>Open-Meteo</b><em id="weatherHealth">Checking…</em></div></div>
       </section>
     </main>
   </div>
 
   <div id="layerDrawer" class="drawer hidden">
     <div class="drawer-head"><div><small>EARTH DATA LAYERS</small><h2>Layers & Filters</h2></div><button id="closeLayers" class="icon-btn">✕</button></div>
-    <div class="filter-row"><select id="freshnessFilter"><option value="">All freshness</option><option>LIVE_NRT</option><option>DYNAMIC_RECENT</option><option>REFERENCE</option><option>FORECAST</option><option>AI_ESTIMATE</option></select><select id="resolutionFilter"><option value="">All resolutions</option><option value="10">≤ 10 m</option><option value="30">≤ 30 m</option><option value="250">≤ 250 m</option></select></div>
+    <div class="filter-grid">
+      <label>Start date<input id="startDate" type="date" /></label>
+      <label>End date<input id="endDate" type="date" /></label>
+      <label>Freshness<select id="freshnessFilter"><option value="">All</option><option>LIVE_NRT</option><option>DYNAMIC_RECENT</option><option>HISTORICAL</option><option>REFERENCE</option><option>FORECAST</option><option>AI_ESTIMATE</option></select></label>
+      <label>Resolution<select id="resolutionFilter"><option value="">All</option><option value="10">≤ 10 m</option><option value="30">≤ 30 m</option><option value="250">≤ 250 m</option><option value="1000">≤ 1 km</option></select></label>
+      <label>Cloud cover ≤<input id="cloudFilter" type="number" min="0" max="100" value="50" /></label>
+      <label>Confidence<select id="confidenceFilter"><option value="high">High</option><option value="nominal">Nominal</option><option value="low">Low</option></select></label>
+    </div>
+    <div class="drawer-note">Layers marked Earth Engine require configured Google Earth Engine credentials. VanRakshak never substitutes fake pixels when a source is unavailable.</div>
+    <div class="source-tool"><label>🇮🇳 ISRO Bhuvan WMS layer<input id="bhuvanLayer" placeholder="e.g. lulc:BR_LULC50K_1112" /></label><button id="addBhuvan" class="secondary">Add Bhuvan layer</button><small>Use an exact layer name published in Bhuvan Thematic Services. Attribution/source remains ISRO/NRSC Bhuvan.</small></div>
     <div id="layerGroups"></div>
   </div>
 
+  <div id="compareModal" class="modal hidden">
+    <div class="modal-card compare-card">
+      <div class="drawer-head"><div><small>SATELLITE CHANGE VIEW</small><h2>Before ↔ After</h2></div><button id="closeCompare" class="icon-btn">✕</button></div>
+      <div class="compare-controls">
+        <label>Before<input id="beforeDate" type="date" /></label>
+        <label>After<input id="afterDate" type="date" /></label>
+        <label>Mode<select id="compareMode"><option value="true_color">True color</option><option value="ndvi">NDVI</option><option value="ndmi">NDMI</option><option value="nbr">NBR</option><option value="ndwi">NDWI</option></select></label>
+        <button id="loadCompare" class="primary">Load real scenes</button>
+        <button id="analyzeChange" class="secondary">AI loss screen</button>
+      </div>
+      <div id="compareShell" class="compare-shell"><div id="compareBefore" class="compare-map"></div><div id="compareAfterWrap" class="compare-after-wrap"><div id="compareAfter" class="compare-map"></div></div><input id="compareSlider" class="compare-slider" type="range" min="0" max="100" value="50" /></div>
+      <div id="compareMeta" class="compare-meta">Select a location first.</div>
+      <div id="changeResult" class="change-result hidden"></div>
+    </div>
+  </div>
+
+  <div id="timeModal" class="modal hidden">
+    <div class="modal-card time-card">
+      <div class="drawer-head"><div><small>FOREST TIME MACHINE</small><h2>Historical Sentinel-2 scenes</h2></div><button id="closeTime" class="icon-btn">✕</button></div>
+      <div class="compare-controls"><label>Start<input id="timeStart" type="date" /></label><label>End<input id="timeEnd" type="date" /></label><button id="loadTime" class="primary">Load timeline</button><button id="playTime" class="secondary">▶ Play</button></div>
+      <div id="timeMap" class="time-map"></div><div id="timeCaption" class="compare-meta">Choose a scene below.</div>
+      <div id="timeline" class="timeline">Select a location first.</div>
+    </div>
+  </div>
+
+
+  <div id="intelligenceModal" class="modal hidden">
+    <div class="modal-card intelligence-card">
+      <div class="drawer-head"><div><small>EXPLAINABLE INTELLIGENCE</small><h2>Prediction • What-If • Forest Doctor</h2></div><button id="closeIntelligence" class="icon-btn">✕</button></div>
+      <div class="intelligence-grid">
+        <div class="card"><h3>Threat Prediction</h3><p class="muted-note">Transparent trend projection with uncertainty. It is a risk projection, never certainty.</p><textarea id="predictionValues" rows="3" placeholder="Historical risk values, e.g. 22,28,31,39,45">22,28,31,39,45</textarea><div class="action-row"><button id="runPrediction" class="primary">Project entered series</button><button id="runLocationPrediction" class="secondary">Use selected forest</button></div><pre id="predictionResult" class="mini-output">—</pre></div>
+        <div class="card"><h3>What-If Simulator</h3><div class="compact-fields"><label>Temperature Δ °C<input id="whatTemp" type="number" step="0.1" value="1"></label><label>Rainfall deficit Δ %<input id="whatRain" type="number" step="1" value="15"></label><label>Fire Δ 0–1<input id="whatFire" type="number" step="0.1" min="0" max="1" value="0.2"></label></div><button id="runWhatIf" class="primary">Simulate</button><pre id="whatIfResult" class="mini-output">—</pre></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="patrolModal" class="modal hidden">
+    <div class="modal-card time-card">
+      <div class="drawer-head"><div><small>ACTION ENGINE</small><h2>Patrol Optimizer</h2></div><button id="closePatrol" class="icon-btn">✕</button></div>
+      <p class="muted-note">Add high-priority coordinates as <code>lat,lon,priority</code> — one per line. VanRakshak orders them and requests a real OSRM road route when available.</p>
+      <textarea id="patrolPoints" rows="7" placeholder="12.35,75.80,95
+12.42,75.92,80"></textarea>
+      <button id="runPatrol" class="primary">Optimize patrol</button><pre id="patrolResult" class="mini-output">—</pre>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
   <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
   <script src="/static/app.js"></script>
 </body>

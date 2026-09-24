@@ -1,13 +1,86 @@
 from __future__ import annotations
 from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+
 
 def pdf_report(title: str, lines: list[str]):
-    buf=BytesIO(); c=canvas.Canvas(buf,pagesize=A4); w,h=A4
-    c.setFont("Helvetica-Bold",18); c.drawString(50,h-60,title)
-    y=h-95; c.setFont("Helvetica",10)
-    for line in lines:
-        if y < 60: c.showPage(); c.setFont("Helvetica",10); y=h-60
-        c.drawString(50,y,str(line)[:115]); y-=16
-    c.save(); buf.seek(0); return buf.getvalue()
+    """Backwards-compatible compact report."""
+    return investigation_pdf({"title": title, "summary_lines": lines})
+
+
+def investigation_pdf(data: dict) -> bytes:
+    buf=BytesIO()
+    doc=SimpleDocTemplate(buf,pagesize=A4,rightMargin=16*mm,leftMargin=16*mm,topMargin=16*mm,bottomMargin=16*mm)
+    styles=getSampleStyleSheet()
+    styles.add(ParagraphStyle(name="Hero",parent=styles["Title"],fontSize=22,leading=26,alignment=TA_CENTER,spaceAfter=5))
+    styles.add(ParagraphStyle(name="Muted",parent=styles["BodyText"],fontSize=8.5,textColor=colors.HexColor("#50645d"),leading=11))
+    styles.add(ParagraphStyle(name="Section",parent=styles["Heading2"],fontSize=13,leading=16,textColor=colors.HexColor("#0b6b45"),spaceBefore=10,spaceAfter=6))
+    story=[Paragraph(str(data.get("title") or "VanRakshak AI Investigation Report"),styles["Hero"]),
+           Paragraph("Satellite-based forest intelligence • source-backed evidence • explainable risk",styles["Muted"]),Spacer(1,7*mm)]
+
+    location=data.get("location") or {}
+    if location:
+        rows=[["Location",str(location.get("place") or "Selected region")],["Coordinates",f"{location.get('lat','—')}, {location.get('lon','—')}"]]
+        story += [Paragraph("Investigation",styles["Section"]), _table(rows)]
+
+    warning=data.get("warning") or {}
+    if warning:
+        rows=[["Warning level",str(warning.get("level","UNKNOWN"))],["Risk score",str(warning.get("score","—"))],["Evidence coverage",f"{round(float(warning.get('coverage') or 0)*100)}%"],["Method",str(warning.get("method",""))]]
+        story += [Paragraph("Explainable warning",styles["Section"]), _table(rows)]
+        fac=warning.get("factors") or []
+        if fac:
+            frows=[["Factor","Contribution","Evidence"]]+[[str(x.get("factor")),str(x.get("contribution")),str(x.get("evidence",""))] for x in fac[:10]]
+            story += [Spacer(1,3*mm),_table(frows,header=True)]
+
+    change=data.get("change") or {}
+    if change:
+        multi=change.get("multispectral") or {}; frag=change.get("fragmentation") or {}
+        rows=[
+            ["Before scene",str((change.get("before") or {}).get("datetime","—"))],
+            ["After scene",str((change.get("after") or {}).get("datetime","—"))],
+            ["Candidate loss area",f"{change.get('candidate_area_ha','—')} ha"],
+            ["NDVI change",str(change.get("mean_ndvi_change","—"))],
+            ["NDMI change",str(multi.get("mean_ndmi_change","—"))],
+            ["NBR change",str(multi.get("mean_nbr_change","—"))],
+            ["Screening confidence",str(change.get("screening_confidence","—"))],
+            ["Cloud masked",f"{round(float(change.get('cloud_masked_fraction') or 0)*100,1)}%"],
+        ]
+        story += [Paragraph("Satellite change evidence",styles["Section"]),_table(rows)]
+        if frag:
+            fc=frag.get("change") or {}
+            story += [Paragraph("Fragmentation change",styles["Section"]),_table([[k,str(v)] for k,v in fc.items()])]
+        story += [Paragraph(str(change.get("warning") or ""),styles["Muted"])]
+
+    carbon=data.get("carbon")
+    if carbon:
+        story += [Paragraph("Carbon impact estimate",styles["Section"]), _table([[k,str(v)] for k,v in carbon.items() if k!="label"])]
+
+    doctor=data.get("forest_doctor") or {}
+    if doctor:
+        rows=[["Probable driver hypothesis","Relative support"]]+[[x.get("driver",""),f"{x.get('relative_support_pct','—')}%"] for x in (doctor.get("probable_drivers") or [])]
+        story += [Paragraph("AI Forest Doctor",styles["Section"]),_table(rows,header=True),Paragraph(str(doctor.get("warning") or ""),styles["Muted"])]
+
+    chain=(data.get("evidence_chain") or {}).get("items") or []
+    if chain:
+        story += [PageBreak(),Paragraph("Evidence chain",styles["Section"])]
+        erows=[["Class","Source","Evidence"]]+[[x.get("kind",""),x.get("source",""),x.get("statement","")] for x in chain]
+        story += [_table(erows,header=True)]
+
+    if data.get("summary_lines"):
+        story += [Paragraph("Summary",styles["Section"])]
+        story += [Paragraph(str(x),styles["BodyText"]) for x in data["summary_lines"]]
+
+    story += [Spacer(1,8*mm),Paragraph("Important: VanRakshak outputs are investigation-support estimates. Satellite/news/road correlations do not establish illegality or legal causation. Field verification remains necessary.",styles["Muted"])]
+    doc.build(story); buf.seek(0); return buf.getvalue()
+
+
+def _table(rows, header=False):
+    t=Table(rows,repeatRows=1 if header else 0,colWidths=None,hAlign="LEFT")
+    style=[("VALIGN",(0,0),(-1,-1),"TOP"),("GRID",(0,0),(-1,-1),0.25,colors.HexColor("#b9c8c2")),("BACKGROUND",(0,0),(0,-1),colors.HexColor("#eef6f2")),("FONTNAME",(0,0),(-1,-1),"Helvetica"),("FONTSIZE",(0,0),(-1,-1),8),("LEADING",(0,0),(-1,-1),10),("LEFTPADDING",(0,0),(-1,-1),5),("RIGHTPADDING",(0,0),(-1,-1),5),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4)]
+    if header: style += [("BACKGROUND",(0,0),(-1,0),colors.HexColor("#0b6b45")),("TEXTCOLOR",(0,0),(-1,0),colors.white),("FONTNAME",(0,0),(-1,0),"Helvetica-Bold")]
+    t.setStyle(TableStyle(style)); return t

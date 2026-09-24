@@ -23,3 +23,10 @@ class OpenMeteoAdapter(BaseAdapter):
             "timezone": "Asia/Kolkata",
         }
         return await self.get_json(settings.open_meteo_url, params=params)
+
+    async def historical_daily(self, lat: float, lon: float, start_date: str, end_date: str):
+        params = {
+            "latitude": lat, "longitude": lon, "start_date": start_date, "end_date": end_date,
+            "daily": "temperature_2m_mean,precipitation_sum", "timezone": "Asia/Kolkata",
+        }
+        return await self.get_json(settings.open_meteo_archive_url, params=params)

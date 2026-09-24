@@ -1,0 +1,27 @@
+from __future__ import annotations
+from datetime import datetime, timezone
+from app.adapters.base import AdapterError
+from app.adapters.earth_search import EarthSearchAdapter
+from app.adapters.gfw import GFWAdapter
+
+async def satellite_layer(earth: EarthSearchAdapter, lat: float, lon: float, mode: str, days: int, cloud_lt: float):
+    data = await earth.latest_sentinel2(lat, lon, days=days, cloud_lt=cloud_lt)
+    features = data.get("features", [])
+    if not features:
+        raise AdapterError("No suitable Sentinel-2 L2A scene found for this location/time/cloud filter")
+    # Prefer low cloud, then newest.
+    def key(f):
+        p=f.get("properties") or {}
+        return (float(p.get("eo:cloud_cover") or 1000), str(p.get("datetime") or ""))
+    item = sorted(features, key=key)[0]
+    return earth.tile_spec(item, mode)
+
+async def compare_layers(earth: EarthSearchAdapter, lat: float, lon: float, before_date: datetime, after_date: datetime, mode: str, window_days: int, cloud_lt: float):
+    before = await earth.closest_scene(lat, lon, before_date, window_days, cloud_lt)
+    after = await earth.closest_scene(lat, lon, after_date, window_days, cloud_lt)
+    if not before or not after:
+        raise AdapterError("Could not find suitable scenes for both comparison dates")
+    return {"before": earth.tile_spec(before, mode), "after": earth.tile_spec(after, mode)}
+
+def gfw_layer(gfw: GFWAdapter, dataset: str, start_date: str | None, end_date: str | None, confidence: str):
+    return gfw.tile_layer(dataset=dataset, start_date=start_date, end_date=end_date, confidence=confidence)

@@ -18,7 +18,7 @@ from app.adapters import (
     OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter,
     FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter,
     EarthSearchAdapter, NominatimAdapter, EarthEngineAdapter, Sentinel1ASFAdapter, OSRMAdapter,
-    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter,
+    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter, PlanetaryComputerAdapter,
 )
 from app.adapters.base import AdapterError
 from app.services.layers import LAYER_GROUPS, FEATURES
@@ -71,7 +71,7 @@ weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGrids
 overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
 gdelt = GDELTAdapter(); gfw = GFWAdapter(); earth = EarthSearchAdapter()
 geocoder = NominatimAdapter(); photon = PhotonAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
-bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter()
+bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter(); pc = PlanetaryComputerAdapter()
 
 
 def prov(source, freshness="UNKNOWN", url=None, observed_at=None, notes=None, resolution_m=None):
@@ -186,6 +186,7 @@ async def investigation_sources(lat: float, lon: float, place: str):
             "weather": wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url),
             "satellite": wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", copernicus.source_url, 10),
             "earth_search": wrap("Earth Search Sentinel-2 L2A", earth.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", earth.source_url, 10),
+            "planetary_computer": wrap("Planetary Computer Sentinel-2 L2A", pc.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", pc.source_url, 10),
             "sentinel1": wrap("ASF Sentinel-1 Search", s1.latest(lat, lon), "DYNAMIC_RECENT", s1.source_url, 10),
             "soil": wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250),
             "human_pressure": wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon), "DYNAMIC_RECENT", overpass.source_url),
@@ -228,6 +229,7 @@ async def health():
             "gibs": True,
             "eonet": True,
             "nasa_power": True,
+            "planetary_computer": True,
             "photon_geocoder": True,
         },
     }
@@ -323,7 +325,7 @@ async def source_health(lat: float = 12.9716, lon: float = 77.5946):
     return await source_health_snapshot({
         "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
         "geocoder": geocoder, "photon": photon, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
-        "gibs": gibs, "eonet": eonet, "power": power,
+        "gibs": gibs, "eonet": eonet, "power": power, "pc": pc,
     }, lat, lon)
 
 
@@ -372,6 +374,11 @@ async def sentinel1_ep(lat: float, lon: float, days: int = Query(30, ge=1, le=36
     return await wrap("ASF Sentinel-1 Search", s1.latest(lat, lon, days), "DYNAMIC_RECENT", s1.source_url, 10)
 
 
+@app.get("/api/satellite/planetary-computer", response_model=SourceResult)
+async def planetary_computer_satellite_ep(lat: float, lon: float, days: int = Query(45, ge=1, le=365), cloud_lt: float = Query(80, ge=0, le=100)):
+    return await wrap("Microsoft Planetary Computer Sentinel-2 L2A", pc.latest_sentinel2(lat,lon,days,cloud_lt), "DYNAMIC_RECENT", pc.source_url, 10)
+
+
 @app.get("/api/satellite/landsat", response_model=SourceResult)
 async def landsat_ep(lat: float, lon: float, days: int = Query(90, ge=1, le=730), cloud_lt: float = Query(60, ge=0, le=100)):
     return await wrap("Earth Search Landsat Collection 2 L2", earth.latest_landsat(lat, lon, days, cloud_lt), "DYNAMIC_RECENT", earth.source_url, 30)
@@ -390,12 +397,51 @@ async def map_satellite_layer(
             start_dt=datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
         if end_date:
             end_dt=datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc) + timedelta(days=1)
+        if start_dt and end_dt and start_dt >= end_dt:
+            raise ValueError("start must be before end")
     except Exception:
-        raise HTTPException(422,"start_date/end_date must use YYYY-MM-DD")
+        raise HTTPException(422,"start_date/end_date must use YYYY-MM-DD and start must be before end")
+    primary_error=None
     try:
-        return await satellite_layer(earth, lat, lon, mode, days, cloud_lt, start_dt, end_dt)
-    except AdapterError as e:
-        raise HTTPException(404, str(e))
+        result=await satellite_layer(earth, lat, lon, mode, days, cloud_lt, start_dt, end_dt)
+        result["fallback_used"]=False
+        return result
+    except Exception as exc:
+        primary_error=str(exc)
+
+    search_end=end_dt or datetime.now(timezone.utc)
+    search_start=start_dt or (search_end-timedelta(days=days))
+    if mode=="true_color":
+        try:
+            pdata=await pc.search_sentinel2(lat,lon,search_start,search_end,cloud_lt,30)
+            pitems=pdata.get("features") or []
+            if pitems:
+                # Prefer low cloud, then newest, matching the primary behavior.
+                pitems.sort(key=lambda item:(float((item.get("properties") or {}).get("eo:cloud_cover") if (item.get("properties") or {}).get("eo:cloud_cover") is not None else 1000),str((item.get("properties") or {}).get("datetime") or "")))
+                fallback=await pc.true_color_tile(pitems[0])
+                fallback["fallback_reason"]=primary_error
+                return fallback
+        except Exception as exc:
+            primary_error += f" | Planetary Computer: {exc}"
+
+    gibs_by_mode={
+        "true_color":"viirs_snpp_true_color",
+        "false_color":"viirs_snpp_false_color",
+        "ndvi":"hls_ndvi_sentinel",
+        "ndmi":"hls_moisture_sentinel",
+        "nbr":"hls_nbr_sentinel",
+        "ndwi":"hls_ndwi_sentinel",
+    }
+    try:
+        fallback_date=end_date or (datetime.now(timezone.utc)-timedelta(days=1)).date().isoformat()
+        spec=gibs.tile_spec(gibs_by_mode[mode],fallback_date)
+        return {
+            **spec,"mode":mode,"fallback_used":True,"fallback_reason":primary_error,
+            "observed_at":spec.get("date"),"item_id":None,
+            "filter_note":"NASA GIBS fallback is a real rendered product but does not apply the Sentinel-2 scene cloud threshold.",
+        }
+    except Exception as exc:
+        raise HTTPException(503,f"Primary and real satellite fallbacks failed: {primary_error} | NASA GIBS: {exc}")
 
 
 @app.get("/api/map/satellite-modes/status")

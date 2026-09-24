@@ -18,7 +18,7 @@ from app.adapters import (
     OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter,
     FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter,
     EarthSearchAdapter, NominatimAdapter, EarthEngineAdapter, Sentinel1ASFAdapter, OSRMAdapter,
-    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter,
+    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter, METNorwayAdapter,
 )
 from app.adapters.base import AdapterError
 from app.services.layers import LAYER_GROUPS, FEATURES
@@ -71,7 +71,7 @@ weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGrids
 overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
 gdelt = GDELTAdapter(); gfw = GFWAdapter(); earth = EarthSearchAdapter()
 geocoder = NominatimAdapter(); photon = PhotonAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
-bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter(); pc = PlanetaryComputerAdapter(); gnews = GoogleNewsRSSAdapter()
+bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter(); pc = PlanetaryComputerAdapter(); gnews = GoogleNewsRSSAdapter(); metno = METNorwayAdapter()
 
 
 def prov(source, freshness="UNKNOWN", url=None, observed_at=None, notes=None, resolution_m=None):
@@ -137,6 +137,38 @@ async def fire_source_result(lat: float, lon: float, days: int = 1):
             ok=False, data=None, error=str(exc),
             provenance=prov("NASA fire intelligence", "UNKNOWN", firms.source_url, notes="FIRMS and no-key EONET fallback were both unavailable."),
         )
+
+
+async def weather_source_result(lat: float, lon: float):
+    errors=[]
+    try:
+        data=await weather.current(lat,lon)
+        observed=(data.get("current") or {}).get("time") if isinstance(data,dict) else None
+        return SourceResult(
+            ok=True,data=data,
+            provenance=prov("Open-Meteo","FORECAST",weather.source_url,observed),
+        )
+    except Exception as exc:
+        errors.append(f"Open-Meteo: {exc}")
+    try:
+        data=await metno.current(lat,lon)
+        observed=(data.get("current") or {}).get("time") if isinstance(data,dict) else None
+        return SourceResult(
+            ok=True,data=data,
+            provenance=prov(
+                "MET Norway Locationforecast","FORECAST",metno.source_url,observed,
+                notes="Open-Meteo unavailable; independent credential-free weather fallback used. "+"; ".join(errors),
+            ),
+        )
+    except Exception as exc:
+        errors.append(f"MET Norway: {exc}")
+    return SourceResult(
+        ok=False,data=None,error="; ".join(errors),
+        provenance=prov(
+            "Weather intelligence","UNKNOWN",weather.source_url,
+            notes="Both real weather providers unavailable; no weather values fabricated.",
+        ),
+    )
 
 
 async def climate_anomaly_source(lat: float, lon: float, window_days: int = 30, baseline_years: int = 5):
@@ -247,7 +279,7 @@ async def investigation_sources(lat: float, lon: float, place: str):
     key=f"investigation:{round(lat,4)}:{round(lon,4)}:{place.lower().strip()[:80]}"
     async def produce():
         tasks = {
-            "weather": wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url),
+            "weather": weather_source_result(lat,lon),
             "satellite": wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", copernicus.source_url, 10),
             "earth_search": wrap("Earth Search Sentinel-2 L2A", earth.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", earth.source_url, 10),
             "planetary_computer": wrap("Planetary Computer Sentinel-2 L2A", pc.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", pc.source_url, 10),
@@ -293,6 +325,7 @@ async def health():
             "gibs": True,
             "eonet": True,
             "nasa_power": True,
+            "met_norway": True,
             "planetary_computer": True,
             "photon_geocoder": True,
         },
@@ -389,7 +422,7 @@ async def source_health(lat: float = 12.9716, lon: float = 77.5946):
     return await source_health_snapshot({
         "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
         "geocoder": geocoder, "photon": photon, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
-        "gibs": gibs, "eonet": eonet, "power": power, "pc": pc, "gnews": gnews,
+        "gibs": gibs, "eonet": eonet, "power": power, "pc": pc, "gnews": gnews, "metno": metno,
     }, lat, lon)
 
 
@@ -435,7 +468,7 @@ async def reverse_geocode(lat: float, lon: float):
 
 @app.get("/api/weather", response_model=SourceResult)
 async def weather_ep(lat: float, lon: float):
-    return await wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url)
+    return await weather_source_result(lat,lon)
 
 
 @app.get("/api/climate/anomaly")
@@ -748,7 +781,7 @@ async def fire_ep(lat: float, lon: float, days: int = Query(1, ge=1, le=5)):
 @app.get("/api/fire/intelligence")
 async def fire_intelligence(lat: float, lon: float, days: int = Query(1, ge=1, le=5)):
     fire = await fire_source_result(lat, lon, days)
-    weather_result = await wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url)
+    weather_result = await weather_source_result(lat,lon)
     cur = (weather_result.data or {}).get("current", {}) if weather_result.ok and isinstance(weather_result.data, dict) else {}
     count = len(fire.data or []) if fire.ok and isinstance(fire.data, list) else 0
     humidity = cur.get("relative_humidity_2m")

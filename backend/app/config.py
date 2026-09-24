@@ -17,6 +17,7 @@ class Settings:
     copernicus_stac_url: str = _env("COPERNICUS_STAC_URL", "https://stac.dataspace.copernicus.eu/v1")
     open_meteo_url: str = _env("OPEN_METEO_URL", "https://api.open-meteo.com/v1/forecast")
     open_meteo_archive_url: str = _env("OPEN_METEO_ARCHIVE_URL", "https://archive-api.open-meteo.com/v1/archive")
+    nasa_power_url: str = _env("NASA_POWER_URL", "https://power.larc.nasa.gov/api/temporal/daily/point")
     soilgrids_url: str = _env("SOILGRIDS_URL", "https://rest.isric.org/soilgrids/v2.0/properties/query")
     overpass_url: str = _env("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
     gdelt_url: str = _env("GDELT_URL", "https://api.gdeltproject.org/api/v2/doc/doc")

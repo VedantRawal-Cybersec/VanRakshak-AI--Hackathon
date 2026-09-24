@@ -62,6 +62,14 @@
         <section class="map-card">
           <div class="map-pills" id="mapPills">
             <button class="map-pill active" data-quick="satellite">▣ <span>Satellite</span></button>
+            <select id="satelliteModeQuick" class="map-mode-select" aria-label="Satellite rendering mode">
+              <option value="true_color">True Color</option>
+              <option value="false_color">False Color</option>
+              <option value="ndvi">NDVI</option>
+              <option value="ndmi">NDMI</option>
+              <option value="nbr">NBR</option>
+              <option value="ndwi">NDWI</option>
+            </select>
             <button class="map-pill" data-quick="forest">🌲 <span>Forest Cover</span></button>
             <button class="map-pill" data-quick="ndvi">● <span>NDVI</span></button>
             <button class="map-pill" data-quick="fire">🔥 <span>Fire</span></button>
@@ -190,13 +198,16 @@
   <div id="layerDrawer" class="drawer hidden">
     <div class="drawer-head"><div><small>EARTH DATA LAYERS</small><h2>Layers & Filters</h2></div><button id="closeLayers" class="icon-btn">✕</button></div>
     <div class="filter-grid">
-      <label>Start date<input id="startDate" type="date" /></label>
-      <label>End date<input id="endDate" type="date" /></label>
+      <label>Start date <small>(optional)</small><input id="startDate" type="date" /></label>
+      <label>End date <small>(optional)</small><input id="endDate" type="date" /></label>
       <label>Freshness<select id="freshnessFilter"><option value="">All</option><option>LIVE_NRT</option><option>DYNAMIC_RECENT</option><option>HISTORICAL</option><option>REFERENCE</option><option>FORECAST</option><option>AI_ESTIMATE</option></select></label>
-      <label>Resolution<select id="resolutionFilter"><option value="">All</option><option value="10">≤ 10 m</option><option value="30">≤ 30 m</option><option value="250">≤ 250 m</option><option value="1000">≤ 1 km</option></select></label>
-      <label>Cloud cover ≤<input id="cloudFilter" type="number" min="0" max="100" value="50" /></label>
-      <label>Confidence<select id="confidenceFilter"><option value="high">High</option><option value="nominal">Nominal</option><option value="low">Low</option></select></label>
+      <label>Resolution<select id="resolutionFilter"><option value="">All</option><option value="10">≤ 10 m</option><option value="30">≤ 30 m</option><option value="250">≤ 250 m</option><option value="1000">≤ 1 km</option><option value="40000">≤ 40 km</option></select></label>
+      <label>Provider / source<select id="sourceFilter"><option value="">All providers</option></select></label>
+      <label>Layer type<select id="renderFilter"><option value="">All layer types</option><option value="satellite">Satellite raster</option><option value="gibs">NASA raster</option><option value="gfw">Forest alerts</option><option value="earth_engine">Earth Engine / fallback</option><option value="point_data">Point observations</option><option value="analysis">Derived analysis</option></select></label>
+      <label>Cloud cover ≤<input id="cloudFilter" type="number" min="0" max="100" value="60" /></label>
+      <label>Alert confidence<select id="confidenceFilter"><option value="high">High</option><option value="nominal">Nominal</option><option value="low">Low</option></select></label>
     </div>
+    <div class="filter-actions"><button id="applyFilters" class="small-primary">Apply Filters</button><button id="resetFilters" class="small-secondary">Reset</button><span id="filterStatus" class="mini-note">No temporal filter active.</span></div>
     <div class="drawer-note">Credential-gated layers remain visibly unavailable until their provider is configured. VanRakshak does not substitute fabricated environmental values.</div>
     <div class="source-tool"><label>🇮🇳 ISRO Bhuvan WMS layer<input id="bhuvanLayer" placeholder="Exact Bhuvan-published layer name" /></label><button id="addBhuvan" class="full-secondary">Add Bhuvan Layer</button></div>
     <div id="layerGroups"></div>
@@ -205,7 +216,7 @@
   <div id="compareModal" class="modal hidden">
     <div class="modal-card compare-modal-card">
       <div class="drawer-head"><div><small>SATELLITE CHANGE VIEW</small><h2>Before ↔ After</h2></div><button id="closeCompare" class="icon-btn">✕</button></div>
-      <div class="compare-controls"><label>Before<input id="modalBeforeDate" type="date" /></label><label>After<input id="modalAfterDate" type="date" /></label><label>Mode<select id="compareMode"><option value="true_color">True color</option><option value="ndvi">NDVI</option><option value="ndmi">NDMI</option><option value="nbr">NBR</option><option value="ndwi">NDWI</option></select></label><button id="loadCompare" class="small-primary">Load Real Scenes</button></div>
+      <div class="compare-controls"><label>Before<input id="modalBeforeDate" type="date" /></label><label>After<input id="modalAfterDate" type="date" /></label><label>Mode<select id="compareMode"><option value="true_color">True color</option><option value="false_color">False color</option><option value="ndvi">NDVI</option><option value="ndmi">NDMI</option><option value="nbr">NBR</option><option value="ndwi">NDWI</option></select></label><button id="loadCompare" class="small-primary">Load Real Scenes</button></div>
       <div id="compareShell" class="compare-shell"><div id="compareBefore" class="compare-map"></div><div id="compareAfterWrap" class="compare-after-wrap"><div id="compareAfter" class="compare-map"></div></div><input id="compareSlider" class="compare-slider" type="range" min="5" max="95" value="50" /></div>
       <div id="compareModalMeta" class="mini-note">Select a region first.</div>
     </div>

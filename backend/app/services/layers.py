@@ -2,15 +2,17 @@ LAYER_GROUPS = [
     {"id":"satellite","label":"Satellite Imagery","icon":"🛰️","layers":[
         {"id":"true_color","label":"Sentinel-2 True Color","source":"Earth Search / Sentinel-2","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"satellite","mode":"true_color"},
         {"id":"false_color","label":"Sentinel-2 False Color","source":"Earth Search / Sentinel-2","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"satellite","mode":"false_color"},
+        {"id":"nasa_modis_terra","label":"NASA MODIS Terra True Color","source":"NASA GIBS","freshness":"DYNAMIC_RECENT","resolution_m":250,"render":"gibs","gibs_layer":"modis_terra_true_color"},
+        {"id":"nasa_modis_aqua","label":"NASA MODIS Aqua True Color","source":"NASA GIBS","freshness":"DYNAMIC_RECENT","resolution_m":250,"render":"gibs","gibs_layer":"modis_aqua_true_color"},
         {"id":"sentinel2","label":"Sentinel-2 Optical Catalogue","source":"Copernicus","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"metadata"},
         {"id":"sentinel1","label":"Sentinel-1 Radar","source":"Copernicus / ASF","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"planned_adapter"},
         {"id":"landsat","label":"Landsat","source":"USGS/NASA / Earth Search","freshness":"DYNAMIC_RECENT","resolution_m":30,"render":"metadata"},
     ]},
     {"id":"forest","label":"Forest","icon":"🌳","layers":[
-        {"id":"forest_cover","label":"Forest / Tree Probability","source":"Dynamic World","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"earth_engine","ee_layer":"dynamic_world_trees"},
+        {"id":"forest_cover","label":"Forest / Tree Probability","source":"Dynamic World + public fallbacks","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"earth_engine","ee_layer":"dynamic_world_trees"},
         {"id":"forest_loss","label":"Integrated Forest Disturbance Alerts","source":"Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"gfw_integrated_alerts"},
         {"id":"glad_s2","label":"GLAD Sentinel-2 Alerts","source":"Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"umd_glad_sentinel2_alerts"},
-        {"id":"hansen_loss","label":"Historical Tree Cover Loss","source":"Hansen / Earth Engine","freshness":"HISTORICAL","resolution_m":30,"render":"earth_engine","ee_layer":"hansen_lossyear"},
+        {"id":"hansen_loss","label":"Historical Tree Cover Loss","source":"Hansen / GFW public tiles","freshness":"HISTORICAL","resolution_m":30,"render":"gfw","dataset":"umd_tree_cover_loss"},
         {"id":"tree_cover_2000","label":"Tree Cover Density 2000","source":"GFW","freshness":"REFERENCE","render":"gfw","dataset":"umd_tree_cover_density_2000"},
         {"id":"forest_gain","label":"Tree Cover Gain","source":"Global Forest Watch","freshness":"HISTORICAL","render":"gfw","dataset":"umd_tree_cover_gain"},
         {"id":"biomass","label":"GEDI Aboveground Biomass Density","source":"NASA GEDI / Earth Engine","freshness":"REFERENCE","resolution_m":25,"render":"earth_engine","ee_layer":"gedi_agbd"},
@@ -24,7 +26,7 @@ LAYER_GROUPS = [
         {"id":"vegetation_health","label":"Vegetation Health / Recovery","source":"VanRakshak time-series","freshness":"AI_ESTIMATE","render":"analysis"},
     ]},
     {"id":"fire","label":"Fire","icon":"🔥","layers":[
-        {"id":"active_fire","label":"Active Fires","source":"NASA FIRMS NOAA-21","freshness":"LIVE_NRT","render":"firms_points"},
+        {"id":"active_fire","label":"Active Fires / Wildfire Context","source":"NASA FIRMS + EONET fallback","freshness":"LIVE_NRT","render":"firms_points"},
         {"id":"burned_area","label":"Burned Area","source":"MODIS / Earth Engine","freshness":"DYNAMIC_RECENT","resolution_m":500,"render":"earth_engine","ee_layer":"modis_burned_area"},
         {"id":"fire_loss","label":"Tree Cover Loss From Fires","source":"GFW","freshness":"HISTORICAL","render":"gfw","dataset":"umd_tree_cover_loss_from_fires"},
         {"id":"fire_risk","label":"Fire Risk","source":"VanRakshak","freshness":"AI_ESTIMATE","render":"analysis"},
@@ -63,7 +65,7 @@ LAYER_GROUPS = [
         {"id":"erosion","label":"Erosion Susceptibility","source":"VanRakshak derived","freshness":"AI_ESTIMATE","render":"analysis"},
     ]},
     {"id":"landcover","label":"Land Cover","icon":"🌍","layers":[
-        {"id":"dynamic_world","label":"Dynamic World Land Cover","source":"Google Earth Engine","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"earth_engine","ee_layer":"dynamic_world_label"},
+        {"id":"dynamic_world","label":"Dynamic World Land Cover","source":"Google Earth Engine (optional enhancement)","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"earth_engine","ee_layer":"dynamic_world_label"},
     ]},
     {"id":"human","label":"Human Pressure","icon":"🚧","layers":[
         {"id":"roads","label":"Roads & Tracks","source":"OpenStreetMap","freshness":"DYNAMIC_RECENT","render":"overpass"},
@@ -73,7 +75,7 @@ LAYER_GROUPS = [
         {"id":"human_modification","label":"Human Modification","source":"CSP / Earth Engine","freshness":"REFERENCE","resolution_m":1000,"render":"earth_engine","ee_layer":"human_modification"},
     ]},
     {"id":"conservation","label":"Conservation","icon":"🏞️","layers":[
-        {"id":"protected","label":"Protected Areas","source":"UNEP-WCMC WDPA / Earth Engine","freshness":"REFERENCE","render":"earth_engine","ee_layer":"wdpa_protected"},
+        {"id":"protected","label":"Protected Area Context","source":"Protected Planet / WDPA / OSM fallback","freshness":"REFERENCE","render":"protected_context"},
     ]},
     {"id":"carbon","label":"Carbon / Biomass","icon":"🧮","layers":[
         {"id":"carbon_stock","label":"Carbon Density (reference)","source":"UNEP-WCMC / Earth Engine","freshness":"REFERENCE","resolution_m":300,"render":"earth_engine","ee_layer":"wcmc_carbon_density"},

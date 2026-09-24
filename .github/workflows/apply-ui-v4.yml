@@ -1,0 +1,48 @@
+name: Apply VanRakshak reference dashboard
+
+on:
+  push:
+    paths:
+      - '.deploypack/ui-v4/READY'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild dashboard pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .deploypack/ui-v4/part* > /tmp/vanrakshak-ui.b64
+          base64 --decode /tmp/vanrakshak-ui.b64 > /tmp/vanrakshak-ui.zip
+          mkdir -p /tmp/vanrakshak-ui
+          unzip -q /tmp/vanrakshak-ui.zip -d /tmp/vanrakshak-ui
+          test -f /tmp/vanrakshak-ui/web/index.html
+          test -f /tmp/vanrakshak-ui/web/styles.css
+          test -f /tmp/vanrakshak-ui/web/app.js
+          cp /tmp/vanrakshak-ui/web/index.html web/index.html
+          cp /tmp/vanrakshak-ui/web/styles.css web/styles.css
+          cp /tmp/vanrakshak-ui/web/app.js web/app.js
+          rm -rf .deploypack/ui-v4
+          rm -f .github/workflows/apply-ui-v4.yml
+
+      - name: Validate dashboard source
+        shell: bash
+        run: |
+          node --check web/app.js
+          test -s web/index.html
+          test -s web/styles.css
+
+      - name: Commit dashboard rebuild
+        shell: bash
+        run: |
+          git config user.name "VanRakshak AI Bot"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "Rebuild VanRakshak dashboard to approved reference design"
+          git push

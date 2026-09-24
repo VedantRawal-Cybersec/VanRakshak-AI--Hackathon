@@ -6,6 +6,11 @@ on:
     paths:
       - 'scripts/verify_public_providers.py'
       - '.github/workflows/public-provider-smoke.yml'
+      - 'backend/app/adapters/earth_search.py'
+      - 'backend/app/adapters/gibs.py'
+      - 'backend/app/adapters/nasa_power.py'
+      - 'backend/app/adapters/planetary_computer.py'
+      - 'backend/app/config.py'
   workflow_dispatch:
   schedule:
     - cron: '43 2 * * *'
@@ -17,6 +22,7 @@ jobs:
       PYTHONPATH: backend
       ALLOW_NETWORK: 'true'
       REQUEST_TIMEOUT_S: '25'
+      TITILER_PUBLIC_URL: 'https://titiler-production-2eae.up.railway.app'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

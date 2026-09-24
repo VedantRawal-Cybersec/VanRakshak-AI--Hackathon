@@ -40,3 +40,24 @@ def test_all_37_feature_capabilities_registered():
     from app.services.feature_status import FEATURE_CAPABILITIES
     assert len(FEATURE_CAPABILITIES)==37
     assert [x["id"] for x in FEATURE_CAPABILITIES]==list(range(1,38))
+
+
+def test_titiler_satellite_modes_use_indexed_band_math_and_256_tiles():
+    from urllib.parse import urlparse, parse_qs
+    from app.adapters.earth_search import EarthSearchAdapter
+    item={
+        "id":"S2-test",
+        "properties":{"datetime":"2026-01-01T00:00:00Z","eo:cloud_cover":1.0},
+        "links":[{"rel":"self","href":"https://earth-search.aws.element84.com/v1/collections/sentinel-2-l2a/items/S2-test"}],
+        "bbox":[75,12,76,13],
+    }
+    earth=EarthSearchAdapter()
+    for mode in ("true_color","false_color","ndvi","ndmi","nbr","ndwi"):
+        spec=earth.tile_spec(item,mode)
+        q=parse_qs(urlparse(spec["tile_url"]).query)
+        assert q.get("tilesize")==["256"]
+        assert spec["item_id"]=="S2-test"
+    assert parse_qs(urlparse(earth.tile_spec(item,"ndvi")["tile_url"]).query)["expression"]==["(b2-b1)/(b2+b1)"]
+    assert parse_qs(urlparse(earth.tile_spec(item,"ndmi")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
+    assert parse_qs(urlparse(earth.tile_spec(item,"nbr")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
+    assert parse_qs(urlparse(earth.tile_spec(item,"ndwi")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]

@@ -250,6 +250,11 @@ async def sentinel1_ep(lat: float, lon: float, days: int = Query(30, ge=1, le=36
     return await wrap("ASF Sentinel-1 Search", s1.latest(lat, lon, days), "DYNAMIC_RECENT", s1.source_url, 10)
 
 
+@app.get("/api/satellite/landsat", response_model=SourceResult)
+async def landsat_ep(lat: float, lon: float, days: int = Query(90, ge=1, le=730), cloud_lt: float = Query(60, ge=0, le=100)):
+    return await wrap("Earth Search Landsat Collection 2 L2", earth.latest_landsat(lat, lon, days, cloud_lt), "DYNAMIC_RECENT", earth.source_url, 30)
+
+
 @app.get("/api/map/satellite-layer")
 async def map_satellite_layer(
     lat: float, lon: float,

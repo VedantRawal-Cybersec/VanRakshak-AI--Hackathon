@@ -25,6 +25,7 @@ EE_LAYERS = {
 class EarthEngineAdapter:
     name = "google_earth_engine"
     source_url = "https://developers.google.com/earth-engine/datasets/"
+    api_repo_url = "https://github.com/google/earthengine-api"
 
     def _ee(self):
         try:
@@ -40,6 +41,23 @@ class EarthEngineAdapter:
 
     def catalog(self):
         return EE_LAYERS
+
+    def health(self):
+        """Validate the official Earth Engine Python API against the configured project.
+
+        This makes a tiny server-side request. It never exposes credential material.
+        """
+        ee = self._ee()
+        probe = ee.Number(1).getInfo()
+        if probe != 1:
+            raise AdapterError("Earth Engine authentication probe returned an unexpected result")
+        return {
+            "ok": True,
+            "project": settings.google_cloud_project,
+            "python_package": "earthengine-api",
+            "official_repository": self.api_repo_url,
+            "catalog_layers": len(EE_LAYERS),
+        }
 
     def sample(self, layer_id: str, lat: float, lon: float, days: int = 3650):
         cfg = EE_LAYERS.get(layer_id)

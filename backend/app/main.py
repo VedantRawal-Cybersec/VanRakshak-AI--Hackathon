@@ -110,6 +110,7 @@ async def health():
             "firms_configured": bool(settings.firms_map_key),
             "protected_planet_configured": bool(settings.protected_planet_token),
             "earth_engine_project": bool(settings.google_cloud_project),
+            "earth_engine_api_repo": ee.api_repo_url,
             "titiler": settings.titiler_public_url,
             "database": settings.database_url.split(":",1)[0],
         },
@@ -127,7 +128,7 @@ def feature_status(): return {"count":len(FEATURE_CAPABILITIES),"features":FEATU
 async def source_health(lat: float = 12.9716, lon: float = 77.5946):
     return await source_health_snapshot({
         "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
-        "geocoder": geocoder, "s1": s1, "firms": firms, "pp": pp,
+        "geocoder": geocoder, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
     }, lat, lon)
 
 

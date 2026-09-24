@@ -19,7 +19,7 @@ class GFWAdapter(BaseAdapter):
     def tile_layer(self, dataset: str = "gfw_integrated_alerts", start_date: str | None = None, end_date: str | None = None, confidence: str = "high"):
         allowed = {
             "gfw_integrated_alerts", "gfw_integrated_dist_alerts", "umd_glad_sentinel2_alerts",
-            "umd_glad_landsat_alerts", "umd_tree_cover_loss", "umd_tree_cover_loss_from_fires",
+            "umd_glad_landsat_alerts", "wur_radd_alerts", "umd_tree_cover_loss", "umd_tree_cover_loss_from_fires",
             "umd_tree_cover_gain", "umd_tree_cover_density_2000", "umd_tree_cover_height_2020"
         }
         if dataset not in allowed:
@@ -30,6 +30,8 @@ class GFWAdapter(BaseAdapter):
         if end_date: params.append(("end_date", end_date))
         if dataset in {"gfw_integrated_alerts", "gfw_integrated_dist_alerts"}:
             params.extend([("render_type", "true_color"), ("alert_confidence", confidence)])
+        elif dataset == "wur_radd_alerts":
+            params.append(("confirmed_only", "true"))
         elif "alerts" in dataset:
             params.append(("confirmed_only", "true"))
         if params: url += "?" + urlencode(params)

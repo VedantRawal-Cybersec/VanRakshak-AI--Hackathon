@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json, os
+import asyncio, json, os, math
 import httpx
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -370,6 +370,76 @@ async def map_satellite_layer(
         return await satellite_layer(earth, lat, lon, mode, days, cloud_lt, start_dt, end_dt)
     except AdapterError as e:
         raise HTTPException(404, str(e))
+
+
+@app.get("/api/map/satellite-modes/status")
+async def satellite_modes_status(
+    lat: float, lon: float,
+    days: int = Query(45, ge=1, le=365),
+    cloud_lt: float = Query(60, ge=0, le=100),
+    start_date: str | None = None, end_date: str | None = None,
+):
+    """Render-probe all Sentinel-2 modes through the same TiTiler path used by the UI."""
+    try:
+        end_dt=datetime.now(timezone.utc)
+        start_dt=end_dt-timedelta(days=days)
+        if start_date:
+            start_dt=datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+        if end_date:
+            end_dt=datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc)+timedelta(days=1)
+        if start_dt >= end_dt:
+            raise ValueError("start must be before end")
+    except Exception:
+        raise HTTPException(422,"start_date/end_date must use YYYY-MM-DD and start must be before end")
+
+    data=await earth.search(lat,lon,start_dt,end_dt,"sentinel-2-l2a",cloud_lt,60)
+    features=data.get("features") or []
+    if not features:
+        raise HTTPException(404,"No suitable Sentinel-2 L2A scene found for the requested filters")
+    def scene_key(item):
+        p=item.get("properties") or {}
+        return (float(p.get("eo:cloud_cover") if p.get("eo:cloud_cover") is not None else 1000),str(p.get("datetime") or ""))
+    item=sorted(features,key=scene_key)[0]
+
+    zoom=10
+    n=2**zoom
+    x=int((lon+180.0)/360.0*n)
+    lat_rad=math.radians(max(-85.05112878,min(85.05112878,lat)))
+    y=int((1.0-math.asinh(math.tan(lat_rad))/math.pi)/2.0*n)
+    x=max(0,min(n-1,x)); y=max(0,min(n-1,y))
+
+    public_base=settings.titiler_public_url.rstrip("/")
+    internal_base=settings.titiler_internal_url.rstrip("/")
+    modes=("true_color","false_color","ndvi","ndmi","nbr","ndwi")
+    async def probe(mode):
+        try:
+            spec=earth.tile_spec(item,mode)
+            tile=spec["tile_url"].replace(public_base,internal_base,1)
+            tile=tile.replace("{z}",str(zoom)).replace("{x}",str(x)).replace("{y}",str(y))
+            async with httpx.AsyncClient(timeout=35.0,follow_redirects=True) as client:
+                r=await client.get(tile)
+            ctype=(r.headers.get("content-type") or "").lower()
+            ok=r.status_code==200 and ctype.startswith("image/") and len(r.content)>100
+            return {
+                "mode":mode,"ok":ok,"http_status":r.status_code,"content_type":ctype,
+                "bytes":len(r.content),"item_id":spec.get("item_id"),
+                "observed_at":spec.get("observed_at"),"cloud_cover":spec.get("cloud_cover"),
+                "resolution_m":spec.get("resolution_m"),
+                "error":None if ok else (r.text[:240] if "text" in ctype or "json" in ctype else "Tile response was not a valid image"),
+            }
+        except Exception as exc:
+            return {"mode":mode,"ok":False,"http_status":None,"content_type":None,"bytes":0,"error":str(exc)}
+    results=await asyncio.gather(*(probe(m) for m in modes))
+    return {
+        "ok":all(x["ok"] for x in results),
+        "scene_id":item.get("id"),
+        "scene_datetime":(item.get("properties") or {}).get("datetime"),
+        "cloud_cover":(item.get("properties") or {}).get("eo:cloud_cover"),
+        "tile_probe":{"z":zoom,"x":x,"y":y},
+        "modes":results,
+        "source":"Element 84 Earth Search / Sentinel-2 L2A via TiTiler",
+        "rule":"A satellite mode is healthy only when the actual raster tile endpoint returns a non-empty image.",
+    }
 
 
 @app.get("/api/map/compare")

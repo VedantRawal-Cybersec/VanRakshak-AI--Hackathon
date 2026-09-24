@@ -40,6 +40,7 @@ from app.services.evidence import build_chain, partial_risk, pressure_context
 from app.services.model_runtime import status as change_model_status
 from app.services.feature_status import FEATURE_CAPABILITIES
 from app.services.source_health import snapshot as source_health_snapshot
+from app.services.cache import cached_async, cache_stats, clear_cache
 from app.services.fallbacks import (
     geocode_search as fallback_geocode_search,
     reverse_geocode as fallback_reverse_geocode,
@@ -153,21 +154,24 @@ async def reverse_source_result(lat: float, lon: float):
 
 
 async def investigation_sources(lat: float, lon: float, place: str):
-    tasks = {
-        "weather": wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url),
-        "satellite": wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", copernicus.source_url, 10),
-        "earth_search": wrap("Earth Search Sentinel-2 L2A", earth.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", earth.source_url, 10),
-        "sentinel1": wrap("ASF Sentinel-1 Search", s1.latest(lat, lon), "DYNAMIC_RECENT", s1.source_url, 10),
-        "soil": wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250),
-        "human_pressure": wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon), "DYNAMIC_RECENT", overpass.source_url),
-        "fire": fire_source_result(lat, lon, 1),
-        "natural_events": wrap("NASA EONET", eonet.events(lat, lon, days=30, radius_deg=3, limit=50), "DYNAMIC_RECENT", eonet.source_url),
-        "protected_area": protected_source_result(lat, lon),
-        "news": wrap("GDELT", gdelt.forest_news(place), "DYNAMIC_RECENT", gdelt.source_url),
-        "reverse_geocode": reverse_source_result(lat, lon),
-    }
-    vals = await asyncio.gather(*tasks.values())
-    return dict(zip(tasks.keys(), [v.model_dump() for v in vals]))
+    key=f"investigation:{round(lat,4)}:{round(lon,4)}:{place.lower().strip()[:80]}"
+    async def produce():
+        tasks = {
+            "weather": wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url),
+            "satellite": wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", copernicus.source_url, 10),
+            "earth_search": wrap("Earth Search Sentinel-2 L2A", earth.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", earth.source_url, 10),
+            "sentinel1": wrap("ASF Sentinel-1 Search", s1.latest(lat, lon), "DYNAMIC_RECENT", s1.source_url, 10),
+            "soil": wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250),
+            "human_pressure": wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon), "DYNAMIC_RECENT", overpass.source_url),
+            "fire": fire_source_result(lat, lon, 1),
+            "natural_events": wrap("NASA EONET", eonet.events(lat, lon, days=30, radius_deg=3, limit=50), "DYNAMIC_RECENT", eonet.source_url),
+            "protected_area": protected_source_result(lat, lon),
+            "news": wrap("GDELT", gdelt.forest_news(place), "DYNAMIC_RECENT", gdelt.source_url),
+            "reverse_geocode": reverse_source_result(lat, lon),
+        }
+        vals = await asyncio.gather(*tasks.values())
+        return dict(zip(tasks.keys(), [v.model_dump() for v in vals]))
+    return await cached_async(key,settings.cache_ttl_s,produce)
 
 
 @app.get("/api/health")
@@ -192,6 +196,16 @@ async def health():
 
 @app.get("/api/features")
 def features(): return {"count": len(FEATURES), "features": FEATURES}
+
+@app.get("/api/cache/status")
+def cache_status():
+    return {"ttl_s":settings.cache_ttl_s,**cache_stats()}
+
+@app.post("/api/cache/clear")
+def cache_clear():
+    clear_cache()
+    return {"ok":True,**cache_stats()}
+
 
 @app.get("/api/features/status")
 def feature_status(): return {"count":len(FEATURE_CAPABILITIES),"features":FEATURE_CAPABILITIES}

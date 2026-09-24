@@ -56,6 +56,8 @@ async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 
         checks.append(_probe("NASA EONET", adapters["eonet"].events(lat, lon, days=2, radius_deg=3, limit=1)))
     if "photon" in adapters:
         checks.append(_probe("Photon Geocoder", adapters["photon"].search("Bengaluru", 1)))
+    if "power" in adapters:
+        checks.append(_probe("NASA POWER", adapters["power"].health()))
 
     rows = await asyncio.gather(*checks)
     configured = [r for r in rows if r["status"] != "NOT_CONFIGURED"]
@@ -69,6 +71,7 @@ async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 
             "fire": any(r["source"] in {"NASA EONET","NASA GIBS"} and r["ok"] for r in rows),
             "geocoding": any(r["source"] in {"Nominatim","Photon Geocoder"} and r["ok"] for r in rows),
             "satellite": any(r["source"] in {"Earth Search","Copernicus STAC","NASA GIBS"} and r["ok"] for r in rows),
+            "climate_history": any(r["source"] in {"Open-Meteo","NASA POWER"} and r["ok"] for r in rows),
         },
         "note": "Health is operational telemetry only. Missing credential-gated sources do not disable their credential-free fallbacks.",
     }

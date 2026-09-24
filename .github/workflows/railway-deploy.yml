@@ -1,0 +1,28 @@
+name: Railway Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Railway project token
+        shell: sh
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "RAILWAY_TOKEN GitHub secret is required"
+            exit 1
+          fi
+      - name: Deploy API
+        run: railway up --service api --ci
+      - name: Deploy worker
+        run: railway up --service worker --ci
+      - name: Deploy beat
+        run: railway up --service beat --ci
+      - name: Show service status
+        run: railway service status --all --json

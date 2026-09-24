@@ -132,20 +132,23 @@ class EarthSearchAdapter(BaseAdapter):
         if not item_url:
             raise AdapterError("STAC item does not expose a self URL")
         base = settings.titiler_public_url.rstrip("/") + "/stac/tiles/WebMercatorQuad/{z}/{x}/{y}.png"
-        common: list[tuple[str, str]] = [("url", item_url), ("asset_as_band", "true"), ("resampling", "bilinear")]
+        common: list[tuple[str, str]] = [
+            ("url", item_url), ("asset_as_band", "true"), ("resampling", "bilinear"),
+            ("tilesize", "256"), ("return_mask", "true"),
+        ]
         mode = mode.lower()
         if mode == "true_color":
-            params = [("url", item_url), ("assets", "visual"), ("resampling", "bilinear")]
+            params = [("url", item_url), ("assets", "visual"), ("resampling", "bilinear"), ("tilesize", "256")]
         elif mode == "ndvi":
-            params = common + [("assets", "red"), ("assets", "nir"), ("expression", "(nir-red)/(nir+red)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
+            params = common + [("assets", "red"), ("assets", "nir"), ("expression", "(b2-b1)/(b2+b1)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
         elif mode == "ndmi":
-            params = common + [("assets", "nir"), ("assets", "swir16"), ("expression", "(nir-swir16)/(nir+swir16)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
+            params = common + [("assets", "nir"), ("assets", "swir16"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
         elif mode == "nbr":
-            params = common + [("assets", "nir"), ("assets", "swir22"), ("expression", "(nir-swir22)/(nir+swir22)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
+            params = common + [("assets", "nir"), ("assets", "swir22"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
         elif mode == "ndwi":
-            params = common + [("assets", "green"), ("assets", "nir"), ("expression", "(green-nir)/(green+nir)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
+            params = common + [("assets", "green"), ("assets", "nir"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
         elif mode == "false_color":
-            params = [("url", item_url), ("assets", "nir"), ("assets", "red"), ("assets", "green"), ("asset_as_band", "true"), ("rescale", "0,5000"), ("resampling", "bilinear")]
+            params = [("url", item_url), ("assets", "nir"), ("assets", "red"), ("assets", "green"), ("asset_as_band", "true"), ("rescale", "0,5000"), ("resampling", "bilinear"), ("tilesize", "256")]
         else:
             raise AdapterError(f"Unsupported satellite render mode: {mode}")
         return {

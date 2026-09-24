@@ -20,12 +20,33 @@ if ids!=list(range(1,38)):
 
 # 2) Every feature endpoint claimed by the capability registry is actually mounted.
 routes={getattr(r,"path",None) for r in app.routes}
+
+def route_exists(path: str) -> bool:
+    if path in routes:
+        return True
+    # FastAPI stores parameterized endpoints as templates such as
+    # /api/earth-engine/layer/{layer_id}; capability entries may intentionally
+    # name a concrete layer such as /api/earth-engine/layer/dynamic_world_trees.
+    for route in routes:
+        if not route:
+            continue
+        pattern="^"+re.sub(r"\\{[^/]+\\}",r"[^/]+",re.escape(route).replace(r"\\{", "{").replace(r"\\}", "}"))+"$"
+        # The escaped/template transform above is deliberately simple. If it
+        # cannot produce a match, fall back to segment comparison.
+        if re.match(pattern,path):
+            return True
+        rs=route.strip("/").split("/")
+        ps=path.strip("/").split("/")
+        if len(rs)==len(ps) and all(a==b or (a.startswith("{") and a.endswith("}")) for a,b in zip(rs,ps)):
+            return True
+    return False
+
 for feat in FEATURE_CAPABILITIES:
     if not feat.get("endpoints"):
         errors.append(f"Feature {feat['id']} {feat['name']} has no runtime endpoint")
     for raw in feat.get("endpoints",[]):
         path=raw.split("?",1)[0]
-        if path not in routes:
+        if not route_exists(path):
             errors.append(f"Feature {feat['id']} {feat['name']} references missing route {path}")
 
 # 3) Every map-layer render mode has executable frontend handling.

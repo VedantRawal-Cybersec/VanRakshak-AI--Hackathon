@@ -497,7 +497,8 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
     sources = await investigation_sources(lat, lon, place)
     location = sources.get("reverse_geocode", {}).get("data") or {}
     address = location.get("address", {}) if isinstance(location, dict) else {}
-    weather_data = (sources.get("weather", {}).get("data") or {}).get("current", {})
+    weather_full = sources.get("weather", {}).get("data") or {}
+    weather_data = weather_full.get("current", {})
     pressure = sources.get("human_pressure", {}).get("data") or {}
     fires = sources.get("fire", {}).get("data") or []
     earth_data = sources.get("earth_search", {}).get("data") or {}
@@ -529,23 +530,27 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
             "human_modification_reference": (ee_values.get("human_modification") or {}).get("value"),
             "population_reference": (ee_values.get("worldpop_population") or {}).get("value"),
         },
-        "fire": {"detections_in_window": len(fires) if isinstance(fires, list) else None, "configured": sources.get("fire", {}).get("ok", False)},
+        "fire": {
+            "detections_in_window": len(fires) if isinstance(fires, list) else None,
+            "configured": sources.get("fire", {}).get("ok", False),
+            "source": (sources.get("fire", {}).get("provenance") or {}).get("source"),
+        },
         "forest": {
             "dynamic_world_tree_probability": (ee_values.get("dynamic_world_trees") or {}).get("value"),
             "gedi_agbd_mg_per_ha": (ee_values.get("gedi_agbd") or {}).get("value"),
             "carbon_density_t_per_ha_reference": (ee_values.get("wcmc_carbon_density") or {}).get("value"),
         },
         "terrain": {
-            "elevation_m": (ee_values.get("srtm_elevation") or {}).get("value"),
+            "elevation_m": (ee_values.get("srtm_elevation") or {}).get("value") if ee_values.get("srtm_elevation") else weather_full.get("elevation"),
             "slope_deg": (ee_values.get("srtm_slope") or {}).get("value"),
             "aspect_deg": (ee_values.get("srtm_aspect") or {}).get("value"),
         },
-        "conservation": ee_values.get("wdpa_protected"),
+        "conservation": (sources.get("protected_area") or {}).get("data") or ee_values.get("wdpa_protected"),
         "soil": sources.get("soil"),
         "earth_engine": {"configured": bool(settings.google_cloud_project), "values": ee_values},
         "provenance": {k: v.get("provenance") for k, v in sources.items()},
         "raw_sources": sources,
-        "note": "Earth Engine-backed canopy, terrain, biomass, carbon, population and protected-area fields are populated only when authenticated; absent values are not fabricated.",
+        "note": "Credential-free fallbacks keep satellite, fire context, protected-area context, geocoding, weather and public forest layers operational. Earth Engine still adds higher-value canopy/terrain/biomass/carbon/population layers when authenticated; absent values are never fabricated.",
     }
 
 
@@ -673,7 +678,9 @@ async def evidence_chain_ep(
                 change=await asyncio.to_thread(remote_change_analyze,before,after,lat,lon,radius_km,.2,.45)
         except Exception:
             change=None
-    protected=None; carbon=None
+    protected_ctx = (sources.get("protected_area") or {}).get("data") or {}
+    protected = protected_ctx.get("inside") if isinstance(protected_ctx, dict) and "inside" in protected_ctx else None
+    carbon=None
     if settings.google_cloud_project:
         try:
             pa=await asyncio.to_thread(ee.sample,"wdpa_protected",lat,lon,3650)
@@ -695,7 +702,10 @@ async def evidence_chain_ep(
     pctx=pressure_context(sources.get("human_pressure") or {},lat,lon)
     if change:
         fire=sources.get("fire") or {}
-        fire_signal=min(1,len(fire.get("data") or [])/10) if fire.get("ok") else 0
+        fire_source=((fire.get("provenance") or {}).get("source") or "")
+        raw_fire_signal=min(1,len(fire.get("data") or [])/10) if fire.get("ok") else 0
+        # EONET is contextual event evidence, not pixel-level thermal detection.
+        fire_signal=min(.2, raw_fire_signal) if "EONET" in fire_source else raw_fire_signal
         drought=min(1,max(0,(climate or {}).get("rainfall_deficit_pct") or 0)/70)
         frag=change.get("fragmentation") or {}; fchg=frag.get("change") or {}
         radar_available=((sources.get("sentinel1") or {}).get("ok") is True)

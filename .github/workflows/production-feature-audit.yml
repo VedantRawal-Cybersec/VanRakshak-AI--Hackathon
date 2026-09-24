@@ -2,6 +2,11 @@ name: Production Feature Audit
 
 on:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: 'Optional Railway git SHA that must be live before the audit runs'
+        required: false
+        type: string
   push:
     paths:
       - 'scripts/production_feature_audit.py'
@@ -17,11 +22,11 @@ jobs:
     timeout-minutes: 35
     env:
       BASE_URL: https://vanrakshak-api-production-3e28.up.railway.app
-      EXPECTED_SHA: ${{ github.sha }}
+      EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Wait for Railway and audit all 37 features
+      - name: Audit all 37 production features
         run: python scripts/production_feature_audit.py

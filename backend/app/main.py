@@ -159,9 +159,11 @@ async def investigation_sources(lat: float, lon: float, place: str):
         "sentinel1": wrap("ASF Sentinel-1 Search", s1.latest(lat, lon), "DYNAMIC_RECENT", s1.source_url, 10),
         "soil": wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250),
         "human_pressure": wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon), "DYNAMIC_RECENT", overpass.source_url),
-        "fire": wrap("NASA FIRMS", firms.fires(lat, lon), "LIVE_NRT", firms.source_url),
+        "fire": fire_source_result(lat, lon, 1),
+        "natural_events": wrap("NASA EONET", eonet.events(lat, lon, days=30, radius_deg=3, limit=50), "DYNAMIC_RECENT", eonet.source_url),
+        "protected_area": protected_source_result(lat, lon),
         "news": wrap("GDELT", gdelt.forest_news(place), "DYNAMIC_RECENT", gdelt.source_url),
-        "reverse_geocode": wrap("OpenStreetMap Nominatim", geocoder.reverse(lat, lon), "DYNAMIC_RECENT", geocoder.source_url),
+        "reverse_geocode": reverse_source_result(lat, lon),
     }
     vals = await asyncio.gather(*tasks.values())
     return dict(zip(tasks.keys(), [v.model_dump() for v in vals]))
@@ -179,6 +181,10 @@ async def health():
             "earth_engine_api_repo": ee.api_repo_url,
             "titiler": settings.titiler_public_url,
             "database": settings.database_url.split(":",1)[0],
+            "credential_free_fallbacks": True,
+            "gibs": True,
+            "eonet": True,
+            "photon_geocoder": True,
         },
     }
 
@@ -194,7 +200,8 @@ def feature_status(): return {"count":len(FEATURE_CAPABILITIES),"features":FEATU
 async def source_health(lat: float = 12.9716, lon: float = 77.5946):
     return await source_health_snapshot({
         "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
-        "geocoder": geocoder, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
+        "geocoder": geocoder, "photon": photon, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
+        "gibs": gibs, "eonet": eonet,
     }, lat, lon)
 
 
@@ -212,12 +219,12 @@ def layers():
 
 @app.get("/api/geocode")
 async def geocode(q: str = Query(..., min_length=2)):
-    return await wrap("OpenStreetMap Nominatim", geocoder.search(q), "DYNAMIC_RECENT", geocoder.source_url)
+    return await geocode_source_result(q)
 
 
 @app.get("/api/reverse-geocode")
 async def reverse_geocode(lat: float, lon: float):
-    return await wrap("OpenStreetMap Nominatim", geocoder.reverse(lat, lon), "DYNAMIC_RECENT", geocoder.source_url)
+    return await reverse_source_result(lat, lon)
 
 
 @app.get("/api/weather", response_model=SourceResult)
@@ -384,12 +391,86 @@ async def pressure_ep(lat: float, lon: float, radius_m: int = Query(5000, ge=500
 
 @app.get("/api/fire", response_model=SourceResult)
 async def fire_ep(lat: float, lon: float, days: int = Query(1, ge=1, le=5)):
-    return await wrap("NASA FIRMS VIIRS NOAA-21 NRT", firms.fires(lat, lon, days=days), "LIVE_NRT", firms.source_url)
+    return await fire_source_result(lat, lon, days)
+
+
+@app.get("/api/fire/intelligence")
+async def fire_intelligence(lat: float, lon: float, days: int = Query(1, ge=1, le=5)):
+    fire = await fire_source_result(lat, lon, days)
+    weather_result = await wrap("Open-Meteo", weather.current(lat, lon), "FORECAST", weather.source_url)
+    cur = (weather_result.data or {}).get("current", {}) if weather_result.ok and isinstance(weather_result.data, dict) else {}
+    count = len(fire.data or []) if fire.ok and isinstance(fire.data, list) else 0
+    humidity = cur.get("relative_humidity_2m")
+    wind = cur.get("wind_speed_10m")
+    rain = cur.get("rain")
+    score = 0.0
+    score += min(45.0, count * 8.0)
+    if humidity is not None: score += max(0.0, min(20.0, (45-float(humidity))*0.7))
+    if wind is not None: score += min(20.0, float(wind)*0.6)
+    if rain is not None and float(rain) == 0: score += 10.0
+    score = round(min(100.0, score), 1)
+    level = "LOW" if score < 25 else "MODERATE" if score < 50 else "HIGH" if score < 75 else "VERY_HIGH"
+    return {
+        "fire": fire.model_dump(),
+        "weather": weather_result.model_dump(),
+        "wind_direction_deg": cur.get("wind_direction_10m"),
+        "wind_speed_kmh": wind,
+        "context_score": score,
+        "context_level": level,
+        "label": "AI_ESTIMATE",
+        "warning": "This is a situational fire-weather context score, not a physical fire-spread forecast.",
+    }
+
+
+@app.get("/api/eonet/events")
+async def eonet_events(lat: float, lon: float, days: int = Query(30, ge=1, le=365), radius_deg: float = Query(3, ge=.2, le=20)):
+    return await wrap("NASA EONET", eonet.events(lat, lon, days=days, radius_deg=radius_deg), "DYNAMIC_RECENT", eonet.source_url)
+
+
+@app.get("/api/gibs/catalog")
+def gibs_catalog():
+    return {"layers": gibs.catalog(), "auth_required": False, "source": gibs.source_url}
+
+
+@app.get("/api/gibs/layer/{layer_id}")
+def gibs_layer(layer_id: str, date: str | None = None):
+    try:
+        return gibs.tile_spec(layer_id, date)
+    except AdapterError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@app.get("/api/fallbacks/status")
+def fallback_status():
+    return {
+        "strategy": provider_strategy(),
+        "credentials": {
+            "firms": bool(settings.firms_map_key),
+            "protected_planet": bool(settings.protected_planet_token),
+            "earth_engine": bool(settings.google_cloud_project),
+        },
+        "rule": "A credential-gated source may improve precision/coverage, but the dashboard remains operational through public fallbacks where a scientifically valid substitute exists.",
+    }
 
 
 @app.get("/api/protected-areas", response_model=SourceResult)
 async def protected_ep(page: int = 1):
     return await wrap("Protected Planet API v4", pp.india(page), "REFERENCE", pp.source_url)
+
+
+@app.get("/api/protected-areas/{site_id}", response_model=SourceResult)
+async def protected_site(site_id: str, with_geometry: bool = True):
+    return await wrap("Protected Planet API v4", pp.site(site_id, with_geometry), "REFERENCE", pp.source_url)
+
+
+@app.get("/api/protected-areas/{site_id}/parcels", response_model=SourceResult)
+async def protected_parcels(site_id: str, with_geometry: bool = True):
+    return await wrap("Protected Planet API v4 parcels", pp.parcels(site_id, with_geometry), "REFERENCE", pp.source_url)
+
+
+@app.get("/api/protected-area/context", response_model=SourceResult)
+async def protected_context_ep(lat: float, lon: float):
+    return await protected_source_result(lat, lon)
 
 
 @app.get("/api/news", response_model=SourceResult)

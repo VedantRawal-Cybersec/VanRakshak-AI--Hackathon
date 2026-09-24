@@ -1,11 +1,13 @@
 from __future__ import annotations
-import httpx
-from app.adapters.base import BaseAdapter, AdapterError
+from app.adapters.base import BaseAdapter
 from app.config import settings
 
 class OverpassAdapter(BaseAdapter):
     name = "overpass"
     source_url = "https://www.openstreetmap.org/"
+
+    async def _query(self, q: str):
+        return await self.post_json(settings.overpass_url, data={"data": q})
 
     async def pressure(self, lat: float, lon: float, radius_m: int = 5000):
         q = f'''[out:json][timeout:20];(
@@ -14,9 +16,16 @@ class OverpassAdapter(BaseAdapter):
           way(around:{radius_m},{lat},{lon})[landuse~"industrial|quarry|construction"];
           node(around:{radius_m},{lat},{lon})[man_made="mineshaft"];
         );out center tags;'''
-        if not settings.allow_network:
-            raise AdapterError("Network access disabled")
-        async with httpx.AsyncClient(timeout=settings.request_timeout_s, follow_redirects=True, headers={"User-Agent":"VanRakshakAI/1.0"}) as client:
-            r = await client.post(settings.overpass_url, data={"data": q})
-            r.raise_for_status()
-            return r.json()
+        return await self._query(q)
+
+    async def containing_protected_areas(self, lat: float, lon: float):
+        # Overpass area index lets us query boundaries that actually contain the point.
+        q=f'''[out:json][timeout:25];
+        is_in({lat},{lon})->.containing;
+        (
+          area.containing[boundary="protected_area"];
+          area.containing[leisure="nature_reserve"];
+          area.containing[protect_class];
+        );
+        out center tags;'''
+        return await self._query(q)

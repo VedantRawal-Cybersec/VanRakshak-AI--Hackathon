@@ -142,6 +142,21 @@ def build_chain(sources: dict, change: dict | None = None, climate: dict | None 
     else:
         missing.append("sentinel1")
 
+    sar = sources.get("sar_change") or {}
+    if sar.get("ok"):
+        data=sar.get("data") or {}
+        items.append(evidence_item(
+            "DERIVED_METRIC", "Sentinel-1 GRD / Earth Search",
+            "Matched-orbit VV/VH measurements were compared and produced a radar disturbance screen.",
+            {
+                "candidate_fraction":data.get("candidate_fraction"),
+                "candidate_area_ha":data.get("candidate_area_ha"),
+                "median_vv_change_db":data.get("median_vv_change_db"),
+                "median_vh_change_db":data.get("median_vh_change_db"),
+            },
+            (data.get("after") or {}).get("datetime"), data.get("screening_confidence"), url=source_url(sar),
+        ))
+
     news = sources.get("news") or {}
     if news.get("ok"):
         arts=(news.get("data") or {}).get("articles") or []
@@ -190,6 +205,10 @@ def partial_risk(change: dict | None, sources: dict, climate: dict | None = None
             add("Wildfire event context", min(.25, rows/20), 6, "NASA EONET context; not a thermal hotspot measurement")
         else:
             add("Fire activity", min(1,rows/10), 14, "NASA FIRMS multi-sensor thermal detections")
+    sar=sources.get("sar_change") or {}
+    if sar.get("ok"):
+        data=sar.get("data") or {}
+        add("Measured radar disturbance", min(1.0,max(0.0,float(data.get("candidate_fraction") or 0))*5.0), 10, "Matched-orbit Sentinel-1 VV/VH change screen")
     hp=sources.get("human_pressure") or {}
     if hp.get("ok"):
         d=hp.get("data") or {}; count=d.get("count",len(d.get("elements") or [])) if isinstance(d,dict) else 0

@@ -35,3 +35,9 @@ def test_feature_status_all_37_have_runtime_status():
     data=r.json()
     assert data['count']==37
     assert all(x.get('status') for x in data['features'])
+
+
+def test_ready_endpoint():
+    r=client.get('/api/ready')
+    assert r.status_code==200
+    assert r.json()['ok'] is True

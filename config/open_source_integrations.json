@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "policy": "Only adopt projects that improve a real VanRakshak capability. Heavy research libraries are registered and isolated from the production runtime until a concrete feature uses them.",
+  "integrations": [
+    {
+      "repo": "developmentseed/titiler",
+      "category": "raster-rendering",
+      "status": "RUNTIME",
+      "purpose": "Dynamic Web Mercator rendering for STAC/COG satellite assets",
+      "vanrakshak_use": "TiTiler Railway service renders Sentinel-2 modes"
+    },
+    {
+      "repo": "stac-utils/pystac-client",
+      "category": "stac",
+      "status": "VETTED_NEXT",
+      "purpose": "Standards-based STAC search client",
+      "vanrakshak_use": "Candidate replacement for hand-written STAC query plumbing as catalogue complexity grows"
+    },
+    {
+      "repo": "microsoft/planetary-computer-sdk-for-python",
+      "category": "satellite-access",
+      "status": "API_INTEGRATED",
+      "purpose": "Planetary Computer asset access/signing ecosystem",
+      "vanrakshak_use": "Public Planetary Computer STAC/Data API is already the exact Sentinel-2 render fallback; SDK retained for signed-asset expansion"
+    },
+    {
+      "repo": "opendatacube/odc-stac",
+      "category": "time-series",
+      "status": "VETTED_NEXT",
+      "purpose": "Load STAC observations into xarray/Dask datasets",
+      "vanrakshak_use": "Future scalable time-series stacks and regional mosaics"
+    },
+    {
+      "repo": "earthaccess-dev/earthaccess",
+      "category": "nasa-earthdata",
+      "status": "VETTED_NEXT",
+      "purpose": "Search, stream and download NASA Earthdata",
+      "vanrakshak_use": "Future GEDI, SMAP, MODIS/VIIRS and NASA collection expansion"
+    },
+    {
+      "repo": "sentinel-hub/eo-learn",
+      "category": "earth-observation-ml",
+      "status": "VETTED_NEXT",
+      "purpose": "Reusable EO processing and ML workflows",
+      "vanrakshak_use": "Future validated cloud masks, temporal features and model pipelines"
+    },
+    {
+      "repo": "gee-community/geemap",
+      "category": "earth-engine",
+      "status": "OPTIONAL_CREDENTIAL",
+      "purpose": "Google Earth Engine Python analysis/visualization ecosystem",
+      "vanrakshak_use": "Development and validation companion when an Earth Engine project is configured"
+    },
+    {
+      "repo": "open-meteo/open-meteo",
+      "category": "weather",
+      "status": "API_INTEGRATED",
+      "purpose": "Open-source weather and historical climate API",
+      "vanrakshak_use": "Current weather, soil moisture, evapotranspiration and historical climate primary provider"
+    },
+    {
+      "repo": "sentinel-hub/sentinelhub-py",
+      "category": "sentinel-processing",
+      "status": "VETTED_NEXT",
+      "purpose": "Sentinel Hub Python access and processing client",
+      "vanrakshak_use": "Optional future provider diversification; not required for current keyless core"
+    }
+  ]
+}

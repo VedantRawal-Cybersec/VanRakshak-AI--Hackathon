@@ -1,0 +1,32 @@
+name: Apply VanRakshak v2 overlay
+on:
+  push:
+    branches: [feature/full-platform-v2]
+    paths:
+      - '.bootstrap-v2/READY'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/full-platform-v2
+          fetch-depth: 0
+      - name: Apply validated source overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .bootstrap-v2/READY || exit 0
+          cat .bootstrap-v2/part* > /tmp/vanrakshak.b64
+          base64 --decode /tmp/vanrakshak.b64 > /tmp/vanrakshak.zip
+          unzip -t /tmp/vanrakshak.zip
+          unzip -o /tmp/vanrakshak.zip -d .
+          rm -rf .bootstrap-v2
+          rm -f .github/workflows/bootstrap-v2.yml
+          git config user.name "VanRakshak Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: complete VanRakshak AI full-platform v2"
+          git push origin HEAD:feature/full-platform-v2

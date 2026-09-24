@@ -1,0 +1,32 @@
+name: Demo Forest Preflight
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'
+  push:
+    paths:
+      - 'config/demo_forests.json'
+      - 'scripts/preflight_demo_forests.py'
+      - '.github/workflows/demo-preflight.yml'
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: backend
+      ALLOW_NETWORK: 'true'
+      REQUEST_TIMEOUT_S: '30'
+      CACHE_TTL_S: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+      - run: pip install -r backend/requirements.txt
+      - run: python scripts/preflight_demo_forests.py | tee demo-preflight.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vanrakshak-demo-preflight
+          path: demo-preflight.json

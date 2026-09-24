@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VanRakshak AI</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link href="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">🌿</span><div><b>VanRakshak AI</b><small>FORESTS TODAY • A SAFER TOMORROW</small></div></div>
+      <div class="search-wrap"><input id="searchBox" placeholder="Search forest, state, district or ask AI…"/><button id="searchBtn">Search</button></div>
+      <div class="top-actions"><span class="live-dot"></span><span>Live Data</span><button id="healthBtn" class="ghost">System</button></div>
+    </header>
+
+    <aside class="sidebar">
+      <button class="nav active" data-view="map">🗺️ <span>Map</span></button>
+      <button class="nav">🌳 <span>Forest Cover</span></button>
+      <button class="nav">🚨 <span>Alerts</span></button>
+      <button class="nav">📊 <span>Analysis</span></button>
+      <button class="nav">☁️ <span>Weather</span></button>
+      <button class="nav">🔥 <span>Fire & Heat</span></button>
+      <button class="nav">🌱 <span>Soil & Terrain</span></button>
+      <button class="nav">🔮 <span>Predictions</span></button>
+      <button class="nav">🚁 <span>Patrol Planner</span></button>
+      <button class="nav">📄 <span>Reports</span></button>
+      <div class="sidebar-bottom"><div class="ai-chip">🤖 AI Forest Doctor</div><small>Click any location on the map to investigate.</small></div>
+    </aside>
+
+    <main class="main">
+      <section class="map-section">
+        <div class="quick-tabs">
+          <button class="pill active" data-group="satellite">Satellite</button>
+          <button class="pill" data-group="forest">Forest</button>
+          <button class="pill" data-group="climate">Climate</button>
+          <button class="pill" data-group="fire">Threats</button>
+          <button id="layersBtn" class="pill layers">+ Layers</button>
+        </div>
+        <div id="map"></div>
+        <div id="mapStatus" class="map-status">Click India to investigate a region</div>
+        <div class="legend-card">
+          <b>VanRakshak status</b>
+          <div><i class="dot green"></i> Source-backed</div>
+          <div><i class="dot amber"></i> Estimate / forecast</div>
+          <div><i class="dot red"></i> Threat / alert</div>
+        </div>
+      </section>
+
+      <section id="inspector" class="inspector hidden">
+        <div class="inspector-head"><div><small>DEEP REGION INVESTIGATION</small><h2 id="regionTitle">Selected Region</h2><p id="coords">—</p></div><button id="closeInspector" class="icon-btn">✕</button></div>
+        <div class="tabs"><button class="tab active" data-tab="overview">Overview</button><button class="tab" data-tab="evidence">Evidence</button><button class="tab" data-tab="environment">Environment</button><button class="tab" data-tab="news">News</button></div>
+        <div id="tab-overview" class="tab-panel active">
+          <div class="metric-grid">
+            <div class="metric"><small>Satellite</small><strong id="mSatellite">Checking…</strong><span id="mSatelliteSub">Copernicus</span></div>
+            <div class="metric"><small>Weather</small><strong id="mTemp">—</strong><span id="mWeatherSub">Open-Meteo</span></div>
+            <div class="metric"><small>Fire</small><strong id="mFire">—</strong><span id="mFireSub">NASA FIRMS</span></div>
+            <div class="metric"><small>Soil</small><strong id="mSoil">—</strong><span id="mSoilSub">SoilGrids</span></div>
+          </div>
+          <div class="card"><h3>AI Evidence Chain</h3><div id="evidenceChain" class="evidence-list"><p>Waiting for source data…</p></div></div>
+          <div class="action-row"><button id="riskDemoBtn" class="primary">Run Explainable Risk</button><button id="reportBtn" class="secondary">Generate Report</button></div>
+        </div>
+        <div id="tab-evidence" class="tab-panel"><div id="evidenceRaw" class="card code-card">No evidence loaded.</div></div>
+        <div id="tab-environment" class="tab-panel"><div id="environmentPanel" class="card">No environmental data loaded.</div></div>
+        <div id="tab-news" class="tab-panel"><div id="newsPanel" class="card">Search a named place above to load contextual news.</div></div>
+      </section>
+
+      <section class="analytics-strip">
+        <div class="status-card"><span>🛰️</span><div><small>Satellite</small><b>Copernicus STAC</b><em id="satHealth">Ready</em></div></div>
+        <div class="status-card"><span>🔥</span><div><small>Fire</small><b>NASA FIRMS</b><em id="fireHealth">Key required</em></div></div>
+        <div class="status-card"><span>🌦️</span><div><small>Weather</small><b>Open-Meteo</b><em>Live API</em></div></div>
+        <div class="status-card"><span>🌱</span><div><small>Soil</small><b>SoilGrids</b><em>Reference</em></div></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="layerDrawer" class="drawer hidden">
+    <div class="drawer-head"><div><small>EARTH DATA LAYERS</small><h2>Layers & Filters</h2></div><button id="closeLayers" class="icon-btn">✕</button></div>
+    <div class="filter-row"><select id="freshnessFilter"><option value="">All freshness</option><option>LIVE_NRT</option><option>DYNAMIC_RECENT</option><option>REFERENCE</option><option>FORECAST</option><option>AI_ESTIMATE</option></select><select id="resolutionFilter"><option value="">All resolutions</option><option value="10">≤ 10 m</option><option value="30">≤ 30 m</option><option value="250">≤ 250 m</option></select></div>
+    <div id="layerGroups"></div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

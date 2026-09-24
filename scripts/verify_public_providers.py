@@ -55,7 +55,11 @@ async def gibs_render_smoke(gibs):
             ctype=(r.headers.get("content-type") or "").lower()
             ok=r.status_code==200 and ctype.startswith("image/") and len(r.content)>50
             rows.append({"layer":lid,"ok":ok,"status":r.status_code,"bytes":len(r.content),"content_type":ctype})
-    return {"date":d,"layers":rows,"ok":all(x["ok"] for x in rows)}
+    result={"date":d,"layers":rows,"ok":all(x["ok"] for x in rows)}
+    if not result["ok"]:
+        failed=[x for x in rows if not x["ok"]]
+        raise RuntimeError("NASA GIBS render failures: "+json.dumps(failed,sort_keys=True))
+    return result
 
 async def check(name, coro, validator=lambda x: x is not None):
     try:

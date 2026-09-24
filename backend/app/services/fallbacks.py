@@ -99,7 +99,7 @@ def provider_strategy():
     return {
         "satellite":{
             "primary":"Element 84 Earth Search / Sentinel-2",
-            "fallbacks":["Copernicus Data Space STAC","NASA GIBS imagery"],
+            "fallbacks":["Microsoft Planetary Computer Sentinel-2","Copernicus Data Space STAC","NASA GIBS imagery"],
             "credential_free":True,
         },
         "fire":{
@@ -127,6 +127,11 @@ def provider_strategy():
             "fallbacks":["Earth Engine Hansen"],
             "credential_free":True,
         },
-        "weather":{"primary":"Open-Meteo","fallbacks":[],"credential_free":True},
+        "weather":{"primary":"Open-Meteo","fallbacks":["MET Norway Locationforecast"],"credential_free":True},
+        "climate_history":{"primary":"Open-Meteo Archive","fallbacks":["NASA POWER Daily Meteorology"],"credential_free":True},
+        "news":{"primary":"GDELT DOC 2.0","fallbacks":["Google News RSS metadata"],"credential_free":True},
+        "surface_water":{"primary":"Sentinel-2 NDWI / JRC when configured","fallbacks":["NASA OPERA Dynamic Surface Water via GIBS"],"credential_free_fallback":True},
+        "soil_moisture":{"primary":"Open-Meteo model","fallbacks":["NASA SMAP via GIBS"],"credential_free":True},
+        "forest_disturbance":{"primary":"GFW integrated/GLAD/RADD alerts","fallbacks":["NASA OPERA HLS disturbance alert","Sentinel-2/Sentinel-1 derived change"],"credential_free":True},
         "routing":{"primary":"OSRM/OpenStreetMap","fallbacks":["self-hosted OSRM via OSRM_URL"],"credential_free":True},
     }

@@ -35,6 +35,7 @@ from app.services.prediction import predict as predict_threat
 from app.services.climate import anomaly as climate_anomaly
 from app.services.tiles import satellite_layer, compare_layers, gfw_layer
 from app.services.remote_change import analyze as remote_change_analyze, RemoteChangeError, scene_summary, recovery_from_series
+from app.services.sar_change import analyze as sar_change_analyze, SARChangeError
 from app.services.evidence import build_chain, partial_risk, pressure_context
 from app.services.model_runtime import status as change_model_status
 from app.services.feature_status import FEATURE_CAPABILITIES
@@ -680,6 +681,28 @@ async def remote_change_ep(
         raise HTTPException(503,f"Remote Sentinel analysis failed: {e}")
 
 
+@app.get("/api/analysis/sar-change")
+async def sar_change_ep(
+    lat: float, lon: float, before_date: str, after_date: str,
+    radius_km: float = Query(2.0, ge=.2, le=8),
+    window_days: int = Query(24, ge=7, le=60),
+    drop_db_threshold: float = Query(2.5, ge=.5, le=10),
+):
+    try:
+        bdate=datetime.fromisoformat(before_date).replace(tzinfo=timezone.utc)
+        adate=datetime.fromisoformat(after_date).replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(422,"Dates must use YYYY-MM-DD")
+    pair=await earth.closest_sentinel1_pair(lat,lon,bdate,adate,window_days)
+    if not pair:
+        raise HTTPException(404,"Could not find a matched-orbit Sentinel-1 pair around both dates")
+    before,after=pair
+    try:
+        return await asyncio.to_thread(sar_change_analyze,before,after,lat,lon,radius_km,drop_db_threshold)
+    except Exception as e:
+        raise HTTPException(503,f"Sentinel-1 SAR change screening failed: {e}")
+
+
 @app.get("/api/analysis/evidence-chain")
 async def evidence_chain_ep(
     lat: float, lon: float, place: str = "India", before_date: str | None = None, after_date: str | None = None,
@@ -692,6 +715,7 @@ async def evidence_chain_ep(
     except Exception:
         climate = None
     change = None
+    sar_change = None
     if before_date and after_date:
         try:
             bdate=datetime.fromisoformat(before_date).replace(tzinfo=timezone.utc)
@@ -702,6 +726,12 @@ async def evidence_chain_ep(
                 change=await asyncio.to_thread(remote_change_analyze,before,after,lat,lon,radius_km,.2,.45)
         except Exception:
             change=None
+        try:
+            pair=await earth.closest_sentinel1_pair(lat,lon,bdate,adate,24)
+            if pair:
+                sar_change=await asyncio.to_thread(sar_change_analyze,pair[0],pair[1],lat,lon,radius_km,2.5)
+        except Exception:
+            sar_change=None
     protected_ctx = (sources.get("protected_area") or {}).get("data") or {}
     protected = protected_ctx.get("inside") if isinstance(protected_ctx, dict) and "inside" in protected_ctx else None
     carbon=None
@@ -733,18 +763,19 @@ async def evidence_chain_ep(
         drought=min(1,max(0,(climate or {}).get("rainfall_deficit_pct") or 0)/70)
         frag=change.get("fragmentation") or {}; fchg=frag.get("change") or {}
         radar_available=((sources.get("sentinel1") or {}).get("ok") is True)
+        radar_change_signal=min(1.0,max(0.0,(sar_change or {}).get("candidate_fraction") or 0.0)*5.0)
         doctor=forest_doctor(ForestDoctorInputs(
             ndvi_drop=min(1,max(0,-(change.get("mean_ndvi_change") or 0))),
             fire_signal=fire_signal, drought_severity=drought,
             road_proximity_km=pctx.get("nearest_road_km"), settlement_proximity_km=pctx.get("nearest_settlement_km"),
             mining_or_quarry_nearby=pctx.get("mining_or_quarry_nearby",False),
-            landcover_to_crop=0, radar_change=0,
+            landcover_to_crop=0, radar_change=radar_change_signal,
         ))
-        doctor["availability_note"]="Land-cover-to-crop and measured Sentinel-1 change are left neutral until those measurements are computed; radar scene availability alone is not treated as radar confirmation."
+        doctor["availability_note"]="Measured Sentinel-1 SAR change is used only when a matched-orbit pair can be read. Scene availability alone is never treated as radar confirmation."
         doctor["human_pressure_context"]=pctx
         doctor["radar_scene_available"]=radar_available
         doctor["fragmentation_change"]=fchg
-    return {"location":{"lat":lat,"lon":lon,"place":place},"change":change,"climate":climate,"carbon":carbon,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
+    return {"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
 
 
 @app.get("/api/analysis/vegetation-series")

@@ -37,6 +37,19 @@ class SourceHealthRecord(Base):
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+class FireObservationRecord(Base):
+    __tablename__ = "fire_observations"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    fingerprint: Mapped[str] = mapped_column(String(96), unique=True, index=True)
+    source: Mapped[str] = mapped_column(String(100))
+    observed_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    frp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
 engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

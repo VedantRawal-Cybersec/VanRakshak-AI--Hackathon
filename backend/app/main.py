@@ -356,9 +356,18 @@ async def map_satellite_layer(
     lat: float, lon: float,
     mode: str = Query("true_color", pattern="^(true_color|false_color|ndvi|ndmi|nbr|ndwi)$"),
     days: int = Query(45, ge=1, le=365), cloud_lt: float = Query(50, ge=0, le=100),
+    start_date: str | None = None, end_date: str | None = None,
 ):
+    start_dt=end_dt=None
     try:
-        return await satellite_layer(earth, lat, lon, mode, days, cloud_lt)
+        if start_date:
+            start_dt=datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc)
+        if end_date:
+            end_dt=datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc) + timedelta(days=1)
+    except Exception:
+        raise HTTPException(422,"start_date/end_date must use YYYY-MM-DD")
+    try:
+        return await satellite_layer(earth, lat, lon, mode, days, cloud_lt, start_dt, end_dt)
     except AdapterError as e:
         raise HTTPException(404, str(e))
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 FEATURE_CAPABILITIES = [
 {"id":1,"name":"Real Satellite Monitoring","status":"WORKING","endpoints":["/api/satellite/latest","/api/map/satellite-layer","/api/gibs/layer/{layer_id}"],"sources":["Earth Search","Copernicus Data Space","NASA GIBS"]},
 {"id":2,"name":"Forest Cover Monitoring","status":"WORKING_WITH_PUBLIC_FALLBACK","endpoints":["/api/layers","/api/map/gfw-layer","/api/earth-engine/layer/dynamic_world_trees"],"sources":["GFW public tiles","Sentinel-2","Dynamic World optional"]},
-{"id":3,"name":"AI Deforestation Detection","status":"WORKING_BASELINE_DEEP_MODEL_OPTIONAL","endpoints":["/api/analysis/remote-change","/api/ai/change-model/status"],"sources":["Sentinel-2 L2A"]},
+{"id":3,"name":"AI Deforestation Detection","status":"WORKING_BASELINE_DEEP_MODEL_OPTIONAL","endpoints":["/api/analysis/remote-change","/api/analysis/sar-change","/api/ai/change-model/status"],"sources":["Sentinel-2 L2A","Sentinel-1 GRD"]},
 {"id":4,"name":"Before–After Satellite Comparison","status":"WORKING","endpoints":["/api/map/compare","/api/analysis/remote-change"]},
 {"id":5,"name":"Multi-Spectral Analysis","status":"WORKING","endpoints":["/api/map/satellite-layer","/api/analysis/remote-change"],"indices":["NDVI","NDMI","NBR","NDWI"]},
 {"id":6,"name":"Multi-Layer Earth Map","status":"WORKING","endpoints":["/api/layers","/api/map/gfw-layer","/api/gibs/layer/{layer_id}","/api/earth-engine/layer/{layer_id}","/api/bhuvan/tile/{z}/{x}/{y}.png"]},

@@ -39,6 +39,10 @@ class EarthSearchAdapter(BaseAdapter):
         end = datetime.now(timezone.utc)
         return await self.search(lat, lon, end - timedelta(days=days), end, "sentinel-2-l2a", cloud_lt, 15)
 
+    async def latest_landsat(self, lat: float, lon: float, days: int = 90, cloud_lt: float = 60):
+        end = datetime.now(timezone.utc)
+        return await self.search(lat, lon, end - timedelta(days=days), end, "landsat-c2-l2", cloud_lt, 15)
+
     async def closest_scene(self, lat: float, lon: float, target_date: datetime, window_days: int = 30, cloud_lt: float = 60):
         data = await self.search(
             lat, lon,

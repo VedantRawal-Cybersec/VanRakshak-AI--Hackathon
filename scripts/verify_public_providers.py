@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import httpx
 from app.adapters import (
     EarthSearchAdapter, CopernicusAdapter, OpenMeteoAdapter, SoilGridsAdapter, Sentinel1ASFAdapter,
-    NominatimAdapter, PhotonAdapter, GIBSAdapter, EONETAdapter, OverpassAdapter, GDELTAdapter, GFWAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter,
+    NominatimAdapter, PhotonAdapter, GIBSAdapter, EONETAdapter, OverpassAdapter, GDELTAdapter, GFWAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter, METNorwayAdapter,
 )
 
 LAT,LON=12.3375,75.8069
@@ -89,11 +89,12 @@ async def check(name, coro, validator=lambda x: x is not None):
 async def main():
     earth=EarthSearchAdapter(); cop=CopernicusAdapter(); weather=OpenMeteoAdapter(); soil=SoilGridsAdapter()
     s1=Sentinel1ASFAdapter(); nom=NominatimAdapter(); photon=PhotonAdapter()
-    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter(); gnews=GoogleNewsRSSAdapter()
+    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter(); gnews=GoogleNewsRSSAdapter(); metno=METNorwayAdapter()
     checks=await asyncio.gather(
         check("Earth Search Sentinel-2",earth.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
         check("Copernicus STAC",cop.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
         check("Open-Meteo",weather.current(LAT,LON),lambda x:isinstance(x,dict) and "current" in x),
+        check("MET Norway",metno.current(LAT,LON),lambda x:isinstance(x,dict) and "current" in x),
         check("SoilGrids",soil.point(LAT,LON),lambda x:isinstance(x,dict)),
         check("ASF Sentinel-1",s1.latest(LAT,LON,60,3),lambda x:isinstance(x,dict)),
         check("Nominatim",nom.reverse(LAT,LON),lambda x:isinstance(x,dict) and bool(x)),
@@ -111,7 +112,7 @@ async def main():
         check("GFW RADD radar layer metadata",asyncio.sleep(0, result=gfw.tile_layer("wur_radd_alerts")),lambda x:isinstance(x,dict) and "wur_radd_alerts" in x.get("tile_url","")),
     )
     print(json.dumps({"location":{"lat":LAT,"lon":LON},"checks":checks},indent=2))
-    core={"Earth Search Sentinel-2","Open-Meteo","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Planetary Computer six-mode rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
+    core={"Earth Search Sentinel-2","Open-Meteo","MET Norway","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Planetary Computer six-mode rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
     failed_core=[x for x in checks if x["source"] in core and not x["ok"]]
     if failed_core:
         print("Core public provider smoke failure:",failed_core,file=sys.stderr)

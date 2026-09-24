@@ -944,7 +944,7 @@ def _live_risk_inputs(bundle: dict, lat: float, lon: float) -> RiskInputs:
         float(sar.get("screening_confidence") or 0.0),
     )
     if confidence<=0:
-        confidence=0.5
+        confidence=0.0
 
     return RiskInputs(
         ndvi_drop=ndvi_drop,

@@ -16,10 +16,17 @@ async def satellite_layer(earth: EarthSearchAdapter, lat: float, lon: float, mod
     features = data.get("features", [])
     if not features:
         raise AdapterError("No suitable Sentinel-2 L2A scene found for this location/time/cloud filter")
-    # Prefer low cloud, then newest.
+    # Prefer the newest scene that already satisfies the cloud threshold.
+    # Cloud cover is only the tie-breaker, so "latest" really means latest.
     def key(f):
         p=f.get("properties") or {}
-        return (float(p.get("eo:cloud_cover") or 1000), str(p.get("datetime") or ""))
+        raw=str(p.get("datetime") or "")
+        try:
+            ts=datetime.fromisoformat(raw.replace("Z","+00:00")).timestamp()
+        except Exception:
+            ts=0.0
+        cloud=p.get("eo:cloud_cover")
+        return (-ts,float(cloud if cloud is not None else 1000))
     item = sorted(features, key=key)[0]
     return earth.tile_spec(item, mode)
 

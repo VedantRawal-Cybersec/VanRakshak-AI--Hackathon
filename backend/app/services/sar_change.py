@@ -1,8 +1,11 @@
 from __future__ import annotations
 from math import cos, radians
+from urllib.parse import quote
 import numpy as np
 import rasterio
-from rasterio.windows import Window
+from affine import Affine
+from rasterio.crs import CRS
+from rasterio.windows import Window, from_bounds
 from rasterio.warp import transform_bounds, reproject, Resampling, transform_geom
 from rasterio.features import shapes
 from scipy.ndimage import median_filter
@@ -20,34 +23,85 @@ def _href(item: dict, asset: str):
     href=a.get("href")
     if not href:
         raise SARChangeError(f"Sentinel-1 item {item.get('id')} lacks {asset} asset")
-    return href
+    return _public_raster_href(href)
 
-def _window(src,bbox4326):
-    b=transform_bounds("EPSG:4326",src.crs,*bbox4326,densify_pts=21)
-    win=src.window(*b).round_offsets().round_lengths()
+def _public_raster_href(href: str) -> str:
+    """Avoid GDAL /vsis3 dependency by streaming AWS Open Data COGs over HTTPS."""
+    if not href.startswith("s3://"):
+        return href
+    rest=href[5:]
+    bucket,sep,key=rest.partition("/")
+    if not sep or not bucket or not key:
+        raise SARChangeError(f"Malformed S3 raster URL: {href}")
+    # Sentinel-1 GRD Open Data is hosted in eu-central-1. The regional endpoint
+    # avoids S3 redirect/signing ambiguity and works with GDAL's /vsicurl path.
+    if bucket=="sentinel-s1-l1c":
+        host=f"{bucket}.s3.eu-central-1.amazonaws.com"
+    else:
+        host=f"{bucket}.s3.amazonaws.com"
+    return f"https://{host}/{quote(key,safe='/._-')}"
+
+def _item_grid(item: dict, src) -> tuple[Affine, CRS]:
+    p=item.get("properties") or {}
+    epsg=p.get("proj:epsg")
+    raw_transform=p.get("proj:transform")
+    raw_shape=p.get("proj:shape")
+    if epsg and raw_transform and len(raw_transform)>=6:
+        transform=Affine(*[float(x) for x in raw_transform[:6]])
+        crs=CRS.from_epsg(int(epsg))
+        if raw_shape and len(raw_shape)>=2:
+            expected_h,expected_w=int(raw_shape[0]),int(raw_shape[1])
+            # Earth Search projection metadata describes the measurement raster.
+            # Refuse silent misregistration if an upstream item is inconsistent.
+            if abs(src.height-expected_h)>2 or abs(src.width-expected_w)>2:
+                raise SARChangeError(
+                    f"Sentinel-1 projection metadata/raster shape mismatch: "
+                    f"STAC {expected_w}x{expected_h}, raster {src.width}x{src.height}"
+                )
+        return transform,crs
+    if src.crs and src.transform:
+        return src.transform,src.crs
+    raise SARChangeError("Sentinel-1 scene lacks usable projection metadata")
+
+def _window(src,item,bbox4326):
+    transform,crs=_item_grid(item,src)
+    b=transform_bounds("EPSG:4326",crs,*bbox4326,densify_pts=21)
+    win=from_bounds(*b,transform=transform).round_offsets().round_lengths()
     full=Window(0,0,src.width,src.height)
-    try: win=win.intersection(full)
-    except Exception as exc: raise SARChangeError("AOI does not overlap Sentinel-1 scene") from exc
-    if win.width<2 or win.height<2: raise SARChangeError("SAR AOI is too small")
-    return win
+    try:
+        win=win.intersection(full)
+    except Exception as exc:
+        raise SARChangeError("AOI does not overlap Sentinel-1 scene") from exc
+    if win.width<2 or win.height<2:
+        raise SARChangeError("SAR AOI is too small")
+    return win,transform,crs
 
-def _read_reference(href,bbox4326):
-    env={"GDAL_HTTP_MULTIRANGE":"YES","CPL_VSIL_CURL_ALLOWED_EXTENSIONS":".tif,.TIF"}
-    with rasterio.Env(**env):
+def _raster_env():
+    return {
+        "GDAL_HTTP_MULTIRANGE":"YES",
+        "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES":"YES",
+        "GDAL_DISABLE_READDIR_ON_OPEN":"EMPTY_DIR",
+        "CPL_VSIL_CURL_USE_HEAD":"NO",
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS":".tif,.TIF,.tiff,.TIFF",
+    }
+
+def _read_reference(item,asset,bbox4326):
+    href=_href(item,asset)
+    with rasterio.Env(**_raster_env()):
         with rasterio.open(href) as src:
-            win=_window(src,bbox4326)
+            win,grid_transform,crs=_window(src,item,bbox4326)
             arr=src.read(1,window=win).astype("float32")
-            return arr,src.window_transform(win),src.crs
+            return arr,rasterio.windows.transform(win,grid_transform),crs
 
-def _read_to_grid(href,bbox4326,shape,transform,crs):
-    env={"GDAL_HTTP_MULTIRANGE":"YES","CPL_VSIL_CURL_ALLOWED_EXTENSIONS":".tif,.TIF"}
-    with rasterio.Env(**env):
+def _read_to_grid(item,asset,bbox4326,shape,transform,crs):
+    href=_href(item,asset)
+    with rasterio.Env(**_raster_env()):
         with rasterio.open(href) as src:
-            win=_window(src,bbox4326)
+            win,grid_transform,src_crs=_window(src,item,bbox4326)
             arr=src.read(1,window=win).astype("float32")
             out=np.full(shape,np.nan,dtype="float32")
             reproject(
-                arr,out,src_transform=src.window_transform(win),src_crs=src.crs,
+                arr,out,src_transform=rasterio.windows.transform(win,grid_transform),src_crs=src_crs,
                 dst_transform=transform,dst_crs=crs,src_nodata=0,dst_nodata=np.nan,
                 resampling=Resampling.bilinear,
             )
@@ -70,13 +124,13 @@ def _props(item):
 
 def analyze(before: dict, after: dict, lat: float, lon: float, radius_km: float = 2.0, drop_db_threshold: float = 2.5):
     bbox4326=_bbox(lat,lon,max(.2,min(radius_km,8)))
-    bvv,transform,crs=_read_reference(_href(before,"vv"),bbox4326)
-    avv=_read_to_grid(_href(after,"vv"),bbox4326,bvv.shape,transform,crs)
+    bvv,transform,crs=_read_reference(before,"vv",bbox4326)
+    avv=_read_to_grid(after,"vv",bbox4326,bvv.shape,transform,crs)
 
     bvh=avh=None
     if "vh" in (before.get("assets") or {}) and "vh" in (after.get("assets") or {}):
-        bvh=_read_to_grid(_href(before,"vh"),bbox4326,bvv.shape,transform,crs)
-        avh=_read_to_grid(_href(after,"vh"),bbox4326,bvv.shape,transform,crs)
+        bvh=_read_to_grid(before,"vh",bbox4326,bvv.shape,transform,crs)
+        avh=_read_to_grid(after,"vh",bbox4326,bvv.shape,transform,crs)
 
     bvv_db=median_filter(_amplitude_db(bvv),size=3,mode="nearest")
     avv_db=median_filter(_amplitude_db(avv),size=3,mode="nearest")
@@ -100,7 +154,13 @@ def analyze(before: dict, after: dict, lat: float, lon: float, radius_km: float 
         candidate |= valid&(dvh<=-abs(drop_db_threshold))
 
     px_area=abs(float(transform.a*transform.e)) if crs and getattr(crs,"is_projected",False) else None
+    if px_area is None and crs and crs.to_epsg()==4326:
+        # Approximate geographic pixel area at the AOI latitude for reporting only.
+        metres_per_degree_lat=111_320.0
+        metres_per_degree_lon=111_320.0*cos(radians(lat))
+        px_area=abs(float(transform.a*transform.e))*metres_per_degree_lat*metres_per_degree_lon
     area_ha=float(candidate.sum())*px_area/10000 if px_area else None
+
     feats=[]
     for geom,val in shapes(candidate.astype("uint8"),mask=candidate,transform=transform):
         if val!=1: continue
@@ -128,6 +188,6 @@ def analyze(before: dict, after: dict, lat: float, lon: float, radius_km: float 
         "threshold_db":float(drop_db_threshold),
         "geojson":{"type":"FeatureCollection","features":feats},
         "label":"DERIVED_METRIC",
-        "method":"Matched-orbit Sentinel-1 GRD VV/VH amplitude log-change with 3x3 median speckle screening",
-        "warning":"This is measured SAR-change corroboration from GRD amplitude assets, not terrain-corrected field proof. Interpret with optical change, orbit geometry and land-cover context.",
+        "method":"Matched-orbit Sentinel-1 GRD VV/VH amplitude log-change using Earth Search STAC projection metadata with 3x3 median speckle screening",
+        "warning":"This is measured SAR-change corroboration from GRD amplitude assets, not terrain-corrected or radiometrically calibrated field proof. Interpret with optical change, orbit geometry and land-cover context.",
     }

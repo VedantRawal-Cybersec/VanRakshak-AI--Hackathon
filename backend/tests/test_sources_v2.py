@@ -33,6 +33,8 @@ def test_model_status_baseline_is_ready():
     s=status()
     assert s["baseline_remote_change"]["ready"] is True
     assert "opencd" in s
+    assert "validated" in s["opencd"]
+    assert s["opencd"]["validated"] is False
 
 def test_all_37_feature_capabilities_registered():
     from app.services.feature_status import FEATURE_CAPABILITIES

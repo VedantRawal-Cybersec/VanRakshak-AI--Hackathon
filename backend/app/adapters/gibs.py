@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import date, timedelta
+from urllib.parse import urlencode
 from app.adapters.base import BaseAdapter, AdapterError
 from app.config import settings
 
@@ -23,6 +24,31 @@ class GIBSAdapter(BaseAdapter):
             "matrix": "GoogleMapsCompatible_Level9",
             "max_zoom": 9,
         },
+        "viirs_snpp_true_color": {
+            "identifier": "VIIRS_SNPP_CorrectedReflectance_TrueColor",
+            "label": "VIIRS S-NPP True Color",
+            "format": "jpeg", "service": "wms", "max_zoom": 9, "resolution_m": 250,
+        },
+        "viirs_snpp_thermal_anomalies": {
+            "identifier": "VIIRS_SNPP_Thermal_Anomalies_375m_All",
+            "label": "VIIRS S-NPP Thermal Anomalies 375 m",
+            "format": "png", "service": "wms", "max_zoom": 10, "resolution_m": 375,
+        },
+        "modis_terra_ndvi_8day": {
+            "identifier": "MODIS_Terra_NDVI_8Day",
+            "label": "MODIS Terra NDVI 8-Day",
+            "format": "png", "service": "wms", "max_zoom": 9, "resolution_m": 250,
+        },
+        "modis_terra_lst_day": {
+            "identifier": "MODIS_Terra_Land_Surface_Temp_Day",
+            "label": "MODIS Terra Land Surface Temperature Day",
+            "format": "png", "service": "wms", "max_zoom": 8, "resolution_m": 1000,
+        },
+        "imerg_precipitation_rate": {
+            "identifier": "IMERG_Precipitation_Rate",
+            "label": "GPM IMERG Precipitation Rate",
+            "format": "png", "service": "wms", "max_zoom": 7, "resolution_m": 10000,
+        },
     }
 
     def catalog(self):
@@ -43,10 +69,20 @@ class GIBSAdapter(BaseAdapter):
             parsed = date.today() - timedelta(days=1)
             d = parsed.isoformat()
         base = settings.gibs_url.rstrip("/")
-        url = (
-            f"{base}/wmts/epsg3857/best/{layer['identifier']}/default/{d}/"
-            f"{layer['matrix']}/{{z}}/{{y}}/{{x}}.{layer['format']}"
-        )
+        if layer.get("service") == "wms":
+            params=[
+                ("SERVICE","WMS"),("REQUEST","GetMap"),("VERSION","1.1.1"),
+                ("LAYERS",layer["identifier"]),("STYLES",""),
+                ("FORMAT","image/"+layer["format"]),("TRANSPARENT","TRUE"),
+                ("HEIGHT","256"),("WIDTH","256"),("SRS","EPSG:3857"),
+                ("BBOX","{bbox-epsg-3857}"),("TIME",d),
+            ]
+            url=base+"/wms/epsg3857/best/wms.cgi?"+urlencode(params,safe="{},:")
+        else:
+            url = (
+                f"{base}/wmts/epsg3857/best/{layer['identifier']}/default/{d}/"
+                f"{layer['matrix']}/{{z}}/{{y}}/{{x}}.{layer['format']}"
+            )
         return {
             "layer_id": layer_id,
             "identifier": layer["identifier"],
@@ -54,6 +90,8 @@ class GIBSAdapter(BaseAdapter):
             "date": d,
             "tile_url": url,
             "max_zoom": layer["max_zoom"],
+            "resolution_m": layer.get("resolution_m"),
+            "service": layer.get("service","wmts"),
             "source": "NASA Earthdata GIBS",
             "freshness": "DYNAMIC_RECENT",
             "auth_required": False,

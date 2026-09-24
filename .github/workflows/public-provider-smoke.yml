@@ -1,0 +1,26 @@
+name: Public Provider Smoke
+
+on:
+  push:
+    paths:
+      - 'scripts/verify_public_providers.py'
+      - '.github/workflows/public-provider-smoke.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '43 2 * * *'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: backend
+      ALLOW_NETWORK: 'true'
+      REQUEST_TIMEOUT_S: '25'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+      - run: pip install -r backend/requirements.txt
+      - run: python scripts/verify_public_providers.py

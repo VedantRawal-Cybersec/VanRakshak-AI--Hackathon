@@ -194,6 +194,28 @@ async def health():
     }
 
 
+@app.get("/api/ready")
+async def ready():
+    checks={"static":False,"database":False}
+    try:
+        checks["static"]=(Path("/web/index.html").exists() or Path("web/index.html").exists())
+    except Exception:
+        checks["static"]=False
+    try:
+        from sqlalchemy import text as sql_text
+        from app.db import engine
+        with engine.connect() as conn:
+            conn.execute(sql_text("SELECT 1"))
+        checks["database"]=True
+    except Exception as exc:
+        checks["database_error"]=str(exc)
+    ok=bool(checks["static"] and checks["database"])
+    payload={"ok":ok,"service":settings.app_name,"checks":checks,"time":datetime.now(timezone.utc).isoformat()}
+    if not ok:
+        raise HTTPException(503,payload)
+    return payload
+
+
 @app.get("/api/features")
 def features(): return {"count": len(FEATURES), "features": FEATURES}
 

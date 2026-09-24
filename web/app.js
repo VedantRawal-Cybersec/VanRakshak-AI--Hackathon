@@ -283,7 +283,7 @@ function openLayerDrawer(){$('layerDrawer').classList.remove('hidden');renderLay
 
 // Main interactions
 $('searchBtn').onclick=doSearch;$('searchBox').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});$('brandHome').onclick=()=>map.flyTo({center:[78.8,22.5],zoom:4.25});
-$('[data-quick]').forEach(b=>b.onclick=()=>quickLayer(b.dataset.quick));$('layersBtn').onclick=openLayerDrawer;$('closeLayers').onclick=()=>$('layerDrawer').classList.add('hidden');['freshnessFilter','resolutionFilter','cloudFilter','confidenceFilter','startDate','endDate'].forEach(id=>{const el=$(id);if(el)el.onchange=scheduleLayerFilterApply});if($('cloudFilter'))$('cloudFilter').oninput=scheduleLayerFilterApply;
+$$('[data-quick]').forEach(b=>b.onclick=()=>quickLayer(b.dataset.quick));$('layersBtn').onclick=openLayerDrawer;$('closeLayers').onclick=()=>$('layerDrawer').classList.add('hidden');['freshnessFilter','resolutionFilter','cloudFilter','confidenceFilter','startDate','endDate'].forEach(id=>{const el=$(id);if(el)el.onchange=scheduleLayerFilterApply});if($('cloudFilter'))$('cloudFilter').oninput=scheduleLayerFilterApply;
 $$('.right-tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 $('inlineCompareSlider').oninput=e=>setInlineCompareSplit(e.target.value);
 $('expandCompare').onclick=openFullCompare;$('openCompareBtn').onclick=openFullCompare;$('closeCompare').onclick=()=>$('compareModal').classList.add('hidden');$('loadCompare').onclick=loadFullCompare;$('compareSlider').oninput=e=>setModalCompareSplit(e.target.value);

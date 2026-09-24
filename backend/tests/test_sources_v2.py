@@ -61,3 +61,19 @@ def test_titiler_satellite_modes_use_indexed_band_math_and_256_tiles():
     assert parse_qs(urlparse(earth.tile_spec(item,"ndmi")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
     assert parse_qs(urlparse(earth.tile_spec(item,"nbr")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
     assert parse_qs(urlparse(earth.tile_spec(item,"ndwi")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
+
+
+def test_nasa_power_normalizes_daily_climate_schema(monkeypatch):
+    import asyncio
+    from app.adapters.nasa_power import NASAPowerAdapter
+    async def fake_get_json(self,url,params=None,**kwargs):
+        return {"properties":{"parameter":{
+            "T2M":{"20260901":24.1,"20260902":-999.0},
+            "PRECTOTCORR":{"20260901":5.2,"20260902":0.0},
+        }},"header":{"title":"NASA POWER"}}
+    monkeypatch.setattr(NASAPowerAdapter,"get_json",fake_get_json)
+    out=asyncio.run(NASAPowerAdapter().historical_daily(12.3,75.8,"2026-09-01","2026-09-02"))
+    assert out["daily"]["time"]==["2026-09-01","2026-09-02"]
+    assert out["daily"]["temperature_2m_mean"]==[24.1,None]
+    assert out["daily"]["precipitation_sum"]==[5.2,0.0]
+    assert out["source"]=="NASA POWER"

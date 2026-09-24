@@ -42,7 +42,8 @@ if($('timeStart'))$('timeStart').value=isoDate(threeYearsAgo);
 
 const map=new maplibregl.Map({container:'map',center:[78.8,22.5],zoom:4.25,style:baseStyle,minZoom:3,maxZoom:16});
 map.addControl(new maplibregl.NavigationControl({showCompass:true}),'top-right');
-map.on('click',e=>investigate(e.lngLat.lat,e.lngLat.lng,'Selected Forest Region'));\nmap.on('error',e=>{const msg=e?.error?.message||'';if(/tile|raster|source/i.test(msg)){setText('mapStatus','A map tile failed; VanRakshak will keep other real providers active.');console.warn('Map render error',msg)}});
+map.on('click',e=>investigate(e.lngLat.lat,e.lngLat.lng,'Selected Forest Region'));
+map.on('error',e=>{const msg=e?.error?.message||'';if(/tile|raster|source/i.test(msg)){setText('mapStatus','A map tile failed; VanRakshak will keep other real providers active.');console.warn('Map render error',msg)}});
 
 function ensureLocation(){if(state.lat==null||state.lon==null){toast('Select a location on the map first.');return false}return true}
 function fitSelected(){if(!ensureLocation())return;map.flyTo({center:[state.lon,state.lat],zoom:10,essential:true});}

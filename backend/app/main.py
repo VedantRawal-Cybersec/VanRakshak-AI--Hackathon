@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio, json
+import httpx
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -40,7 +41,7 @@ from app.services.evidence import build_chain, partial_risk, pressure_context
 from app.services.model_runtime import status as change_model_status
 from app.services.feature_status import FEATURE_CAPABILITIES
 from app.services.source_health import snapshot as source_health_snapshot
-from app.services.cache import cached_async, cache_stats, clear_cache
+from app.services.cache import cached_async, cache_stats, clear_cache_async, redis_ping
 from app.services.fallbacks import (
     geocode_search as fallback_geocode_search,
     reverse_geocode as fallback_reverse_geocode,
@@ -209,8 +210,33 @@ async def ready():
         checks["database"]=True
     except Exception as exc:
         checks["database_error"]=str(exc)
-    ok=bool(checks["static"] and checks["database"])
-    payload={"ok":ok,"service":settings.app_name,"checks":checks,"time":datetime.now(timezone.utc).isoformat()}
+
+    production=settings.environment.lower() in {"production","prod","railway"}
+    redis_result=await redis_ping()
+    checks["redis"]=bool(redis_result.get("ok"))
+    if not checks["redis"]:
+        checks["redis_error"]=redis_result.get("error")
+
+    checks["titiler"]=False
+    try:
+        url=settings.titiler_internal_url.rstrip("/")+"/"
+        async with httpx.AsyncClient(timeout=3.0,follow_redirects=True) as client:
+            response=await client.get(url)
+        checks["titiler"]=response.status_code < 500
+        checks["titiler_status"]=response.status_code
+    except Exception as exc:
+        checks["titiler_error"]=str(exc)
+
+    required=["static","database"] + (["redis","titiler"] if production else [])
+    ok=all(bool(checks.get(k)) for k in required)
+    payload={
+        "ok":ok,
+        "service":settings.app_name,
+        "environment":settings.environment,
+        "required_checks":required,
+        "checks":checks,
+        "time":datetime.now(timezone.utc).isoformat(),
+    }
     if not ok:
         raise HTTPException(503,payload)
     return payload
@@ -224,13 +250,30 @@ def cache_status():
     return {"ttl_s":settings.cache_ttl_s,**cache_stats()}
 
 @app.post("/api/cache/clear")
-def cache_clear():
-    clear_cache()
+async def cache_clear():
+    await clear_cache_async()
     return {"ok":True,**cache_stats()}
 
 
 @app.get("/api/features/status")
 def feature_status(): return {"count":len(FEATURE_CAPABILITIES),"features":FEATURE_CAPABILITIES}
+
+
+@app.get("/api/demo-scenarios")
+def demo_scenarios():
+    candidates=[
+        Path(__file__).resolve().parents[2]/"config"/"demo_scenarios.json",
+        Path("/config/demo_scenarios.json"),
+    ]
+    for path in candidates:
+        if path.exists():
+            data=json.loads(path.read_text(encoding="utf-8"))
+            return {
+                **data,
+                "count":len(data.get("scenarios") or []),
+                "note":"Scenario dates and scene IDs are preflight-verified inputs; environmental outputs are still computed from real providers and are never fabricated.",
+            }
+    raise HTTPException(503,"Demo scenario manifest unavailable")
 
 
 @app.get("/api/source-health")

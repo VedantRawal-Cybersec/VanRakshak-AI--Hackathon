@@ -18,6 +18,7 @@ class Settings:
     open_meteo_url: str = _env("OPEN_METEO_URL", "https://api.open-meteo.com/v1/forecast")
     open_meteo_archive_url: str = _env("OPEN_METEO_ARCHIVE_URL", "https://archive-api.open-meteo.com/v1/archive")
     nasa_power_url: str = _env("NASA_POWER_URL", "https://power.larc.nasa.gov/api/temporal/daily/point")
+    met_norway_url: str = _env("MET_NORWAY_URL", "https://api.met.no/weatherapi/locationforecast/2.0/compact")
     planetary_computer_stac_url: str = _env("PLANETARY_COMPUTER_STAC_URL", "https://planetarycomputer.microsoft.com/api/stac/v1")
     soilgrids_url: str = _env("SOILGRIDS_URL", "https://rest.isric.org/soilgrids/v2.0/properties/query")
     overpass_url: str = _env("OVERPASS_URL", "https://overpass-api.de/api/interpreter")

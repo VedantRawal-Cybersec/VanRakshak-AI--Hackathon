@@ -100,3 +100,14 @@ def test_dashboard_filters_drive_live_layer_requests():
 def test_satellite_render_probe_route_registered():
     paths={r.path for r in app.routes}
     assert '/api/map/satellite-modes/status' in paths
+
+
+def test_gibs_keyless_environmental_wms_specs():
+    for layer in ('viirs_snpp_true_color','viirs_snpp_thermal_anomalies','modis_terra_ndvi_8day','modis_terra_lst_day','imerg_precipitation_rate'):
+        r=client.get('/api/gibs/layer/'+layer,params={'date':'2026-09-20'})
+        assert r.status_code==200
+        body=r.json()
+        assert body['service']=='wms'
+        assert '/wms/epsg3857/best/wms.cgi?' in body['tile_url']
+        assert '{bbox-epsg-3857}' in body['tile_url']
+        assert body['auth_required'] is False

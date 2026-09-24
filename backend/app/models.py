@@ -92,3 +92,17 @@ class RegionThreat(BaseModel):
 
 class RegionComparisonRequest(BaseModel):
     regions: list[RegionThreat]
+
+
+class ThreatPredictionRequest(BaseModel):
+    values: list[float]
+    dates: list[str] | None = None
+    steps: int = Field(3, ge=1, le=24)
+    floor: float = 0
+    ceiling: float = 100
+
+class PersistInvestigationRequest(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+    place: str = "India"
+    payload: dict[str, Any]

@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import httpx
 from app.adapters import (
     EarthSearchAdapter, CopernicusAdapter, OpenMeteoAdapter, SoilGridsAdapter, Sentinel1ASFAdapter,
-    NominatimAdapter, PhotonAdapter, GIBSAdapter, EONETAdapter, OverpassAdapter, GDELTAdapter, GFWAdapter, NASAPowerAdapter, PlanetaryComputerAdapter,
+    NominatimAdapter, PhotonAdapter, GIBSAdapter, EONETAdapter, OverpassAdapter, GDELTAdapter, GFWAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter,
 )
 
 LAT,LON=12.3375,75.8069
@@ -89,7 +89,7 @@ async def check(name, coro, validator=lambda x: x is not None):
 async def main():
     earth=EarthSearchAdapter(); cop=CopernicusAdapter(); weather=OpenMeteoAdapter(); soil=SoilGridsAdapter()
     s1=Sentinel1ASFAdapter(); nom=NominatimAdapter(); photon=PhotonAdapter()
-    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter()
+    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter(); gnews=GoogleNewsRSSAdapter()
     checks=await asyncio.gather(
         check("Earth Search Sentinel-2",earth.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
         check("Copernicus STAC",cop.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
@@ -107,10 +107,11 @@ async def main():
         check("NASA GIBS environmental raster rendering",gibs_render_smoke(gibs),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Overpass protected-area fallback",overpass.containing_protected_areas(LAT,LON),lambda x:isinstance(x,dict) and "elements" in x),
         check("GDELT forest news",gdelt.forest_news("Kodagu Karnataka","1week"),lambda x:isinstance(x,dict)),
+        check("Google News RSS fallback",gnews.forest_news("Kodagu Karnataka","1week"),lambda x:isinstance(x,dict) and "articles" in x),
         check("GFW RADD radar layer metadata",asyncio.sleep(0, result=gfw.tile_layer("wur_radd_alerts")),lambda x:isinstance(x,dict) and "wur_radd_alerts" in x.get("tile_url","")),
     )
     print(json.dumps({"location":{"lat":LAT,"lon":LON},"checks":checks},indent=2))
-    core={"Earth Search Sentinel-2","Open-Meteo","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Planetary Computer six-mode rendering","NASA GIBS environmental raster rendering"}
+    core={"Earth Search Sentinel-2","Open-Meteo","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Planetary Computer six-mode rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
     failed_core=[x for x in checks if x["source"] in core and not x["ok"]]
     if failed_core:
         print("Core public provider smoke failure:",failed_core,file=sys.stderr)

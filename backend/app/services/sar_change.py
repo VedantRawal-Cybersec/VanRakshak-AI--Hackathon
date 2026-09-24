@@ -33,53 +33,64 @@ def _public_raster_href(href: str) -> str:
     bucket,sep,key=rest.partition("/")
     if not sep or not bucket or not key:
         raise SARChangeError(f"Malformed S3 raster URL: {href}")
-    # Sentinel-1 GRD Open Data is hosted in eu-central-1. The regional endpoint
-    # avoids S3 redirect/signing ambiguity and works with GDAL's /vsicurl path.
     if bucket=="sentinel-s1-l1c":
         host=f"{bucket}.s3.eu-central-1.amazonaws.com"
     else:
         host=f"{bucket}.s3.amazonaws.com"
     return f"https://{host}/{quote(key,safe='/._-')}"
 
-def _item_grid(item: dict, src) -> tuple[Affine, CRS]:
+def _grid_layout(item: dict, src) -> tuple[Affine, CRS, int, int, bool]:
+    """
+    Return (transform, crs, grid_height, grid_width, raster_is_transposed).
+
+    Earth Search Sentinel-1 STAC projection metadata describes a north-up
+    geospatial grid. Some archive measurement TIFFs are physically stored with
+    width/height swapped relative to that grid. In that case we transpose the
+    pixel window after reading; we never transpose the affine transform.
+    """
     p=item.get("properties") or {}
     epsg=p.get("proj:epsg")
     raw_transform=p.get("proj:transform")
     raw_shape=p.get("proj:shape")
-    if epsg and raw_transform and len(raw_transform)>=6:
+    if epsg and raw_transform and len(raw_transform)>=6 and raw_shape and len(raw_shape)>=2:
         transform=Affine(*[float(x) for x in raw_transform[:6]])
         crs=CRS.from_epsg(int(epsg))
-        if raw_shape and len(raw_shape)>=2:
-            d0,d1=int(raw_shape[0]),int(raw_shape[1])
-            direct=abs(src.height-d0)<=2 and abs(src.width-d1)<=2
-            transposed=abs(src.width-d0)<=2 and abs(src.height-d1)<=2
-            # Earth Search Sentinel-1 items in the archive are not fully uniform:
-            # most follow STAC [rows, cols], while some historical/new items expose
-            # the same two dimensions in [width, height] order. The affine transform
-            # remains x/y ordered, so either exact orientation is safe; anything else
-            # is rejected to avoid silent geolocation errors.
-            if not (direct or transposed):
-                raise SARChangeError(
-                    f"Sentinel-1 projection metadata/raster shape mismatch: "
-                    f"STAC dimensions {d0}x{d1}, raster {src.width}x{src.height}"
-                )
-        return transform,crs
+        grid_h,grid_w=int(raw_shape[0]),int(raw_shape[1])
+        direct=(abs(src.height-grid_h)<=2 and abs(src.width-grid_w)<=2)
+        transposed=(abs(src.height-grid_w)<=2 and abs(src.width-grid_h)<=2)
+        if not (direct or transposed):
+            raise SARChangeError(
+                f"Sentinel-1 projection metadata/raster shape mismatch: "
+                f"grid {grid_w}x{grid_h}, raster {src.width}x{src.height}"
+            )
+        return transform,crs,grid_h,grid_w,transposed
     if src.crs and src.transform:
-        return src.transform,src.crs
+        return src.transform,src.crs,src.height,src.width,False
     raise SARChangeError("Sentinel-1 scene lacks usable projection metadata")
 
-def _window(src,item,bbox4326):
-    transform,crs=_item_grid(item,src)
+def _grid_window(src,item,bbox4326):
+    transform,crs,grid_h,grid_w,transposed=_grid_layout(item,src)
     b=transform_bounds("EPSG:4326",crs,*bbox4326,densify_pts=21)
-    win=from_bounds(*b,transform=transform).round_offsets().round_lengths()
-    full=Window(0,0,src.width,src.height)
+    grid_win=from_bounds(*b,transform=transform).round_offsets().round_lengths()
+    grid_full=Window(0,0,grid_w,grid_h)
     try:
-        win=win.intersection(full)
+        grid_win=grid_win.intersection(grid_full)
     except Exception as exc:
         raise SARChangeError("AOI does not overlap Sentinel-1 scene") from exc
-    if win.width<2 or win.height<2:
+    if grid_win.width<2 or grid_win.height<2:
         raise SARChangeError("SAR AOI is too small")
-    return win,transform,crs
+
+    if transposed:
+        # Grid[row, col] is stored as TIFF[row=col, col=row].
+        src_win=Window(
+            col_off=grid_win.row_off,
+            row_off=grid_win.col_off,
+            width=grid_win.height,
+            height=grid_win.width,
+        )
+    else:
+        src_win=grid_win
+    return src_win,grid_win,transform,crs,transposed
 
 def _raster_env():
     return {
@@ -90,30 +101,38 @@ def _raster_env():
         "CPL_VSIL_CURL_ALLOWED_EXTENSIONS":".tif,.TIF,.tiff,.TIFF",
     }
 
-def _read_reference(item,asset,bbox4326):
+def _read_native(item,asset,bbox4326):
     href=_href(item,asset)
     with rasterio.Env(**_raster_env()):
         with rasterio.open(href) as src:
-            win,grid_transform,crs=_window(src,item,bbox4326)
-            arr=src.read(1,window=win).astype("float32")
-            return arr,rasterio.windows.transform(win,grid_transform),crs
+            src_win,grid_win,grid_transform,crs,transposed=_grid_window(src,item,bbox4326)
+            arr=src.read(1,window=src_win).astype("float32")
+            if transposed:
+                arr=arr.T
+            expected=(int(round(grid_win.height)),int(round(grid_win.width)))
+            if arr.shape!=expected:
+                raise SARChangeError(
+                    f"Sentinel-1 AOI array/grid mismatch after orientation handling: "
+                    f"array {arr.shape}, expected {expected}"
+                )
+            transform=rasterio.windows.transform(grid_win,grid_transform)
+            return arr,transform,crs
+
+def _read_reference(item,asset,bbox4326):
+    return _read_native(item,asset,bbox4326)
 
 def _read_to_grid(item,asset,bbox4326,shape,transform,crs):
-    href=_href(item,asset)
-    with rasterio.Env(**_raster_env()):
-        with rasterio.open(href) as src:
-            win,grid_transform,src_crs=_window(src,item,bbox4326)
-            arr=src.read(1,window=win).astype("float32")
-            out=np.full(shape,np.nan,dtype="float32")
-            reproject(
-                arr,out,src_transform=rasterio.windows.transform(win,grid_transform),src_crs=src_crs,
-                dst_transform=transform,dst_crs=crs,src_nodata=0,dst_nodata=np.nan,
-                resampling=Resampling.bilinear,
-            )
-            return out
+    arr,src_transform,src_crs=_read_native(item,asset,bbox4326)
+    out=np.full(shape,np.nan,dtype="float32")
+    reproject(
+        arr,out,src_transform=src_transform,src_crs=src_crs,
+        dst_transform=transform,dst_crs=crs,src_nodata=0,dst_nodata=np.nan,
+        resampling=Resampling.bilinear,
+    )
+    return out
 
 def _amplitude_db(arr):
-    # Earth Search describes sentinel-1-grd as amplitude-only GRD measurement assets.
+    # Earth Search sentinel-1-grd measurement assets are amplitude GRD values.
     x=np.where(np.isfinite(arr)&(arr>0),arr,np.nan)
     return 20.0*np.log10(np.maximum(x,1e-6))
 
@@ -152,15 +171,14 @@ def analyze(before: dict, after: dict, lat: float, lon: float, radius_km: float 
     if int(valid.sum())<50:
         raise SARChangeError("Too few valid Sentinel-1 pixels for SAR change screening")
 
-    # Forest clearing often reduces cross-pol and/or co-pol return. This is a screening
-    # threshold, not a universal physical classifier.
+    # Forest clearing can reduce cross-pol and/or co-pol return. This is a
+    # corroboration screen, not a universal physical classifier.
     candidate=valid&(dvv<=-abs(drop_db_threshold))
     if dvh is not None:
         candidate |= valid&(dvh<=-abs(drop_db_threshold))
 
     px_area=abs(float(transform.a*transform.e)) if crs and getattr(crs,"is_projected",False) else None
     if px_area is None and crs and crs.to_epsg()==4326:
-        # Approximate geographic pixel area at the AOI latitude for reporting only.
         metres_per_degree_lat=111_320.0
         metres_per_degree_lon=111_320.0*cos(radians(lat))
         px_area=abs(float(transform.a*transform.e))*metres_per_degree_lat*metres_per_degree_lon
@@ -168,11 +186,15 @@ def analyze(before: dict, after: dict, lat: float, lon: float, radius_km: float 
 
     feats=[]
     for geom,val in shapes(candidate.astype("uint8"),mask=candidate,transform=transform):
-        if val!=1: continue
-        try: g=transform_geom(crs,"EPSG:4326",geom,precision=6)
-        except Exception: g=geom
+        if val!=1:
+            continue
+        try:
+            g=transform_geom(crs,"EPSG:4326",geom,precision=6)
+        except Exception:
+            g=geom
         feats.append({"type":"Feature","properties":{"class":"sar_disturbance_candidate"},"geometry":g})
-        if len(feats)>=250: break
+        if len(feats)>=250:
+            break
 
     def stat(arr):
         return round(float(np.nanmedian(arr[valid])),3) if arr is not None else None
@@ -193,6 +215,6 @@ def analyze(before: dict, after: dict, lat: float, lon: float, radius_km: float 
         "threshold_db":float(drop_db_threshold),
         "geojson":{"type":"FeatureCollection","features":feats},
         "label":"DERIVED_METRIC",
-        "method":"Matched-orbit Sentinel-1 GRD VV/VH amplitude log-change using Earth Search STAC projection metadata with 3x3 median speckle screening",
+        "method":"Matched-orbit Sentinel-1 GRD VV/VH amplitude log-change using Earth Search STAC georeferencing, archive orientation correction and 3x3 median speckle screening",
         "warning":"This is measured SAR-change corroboration from GRD amplitude assets, not terrain-corrected or radiometrically calibrated field proof. Interpret with optical change, orbit geometry and land-cover context.",
     }

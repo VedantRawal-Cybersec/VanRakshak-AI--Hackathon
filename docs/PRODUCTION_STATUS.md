@@ -15,8 +15,12 @@ This document is deliberately strict. A feature is only described as working whe
 - Open-Meteo current weather plus same-season historical/reanalysis anomaly calculations.
 - SoilGrids point properties.
 - OpenStreetMap/Overpass human-pressure context.
-- Nominatim India geocoding / reverse geocoding and search-boundary rendering.
-- Global Forest Watch public raster layers where their public tile endpoint is available.
+- Nominatim India geocoding / reverse geocoding with Photon/OpenStreetMap automatic fallback and search-boundary rendering.
+- Global Forest Watch public raster layers, including Hansen-derived historical loss/tree-cover products where available.
+- NASA GIBS keyless imagery tiles and NASA EONET natural-event/wildfire context.
+- Protected-area containment through OSM as a clearly labelled fallback when Protected Planet/WDPA authentication is unavailable.
+- Multi-source fire endpoint that uses FIRMS NOAA-21/NOAA-20/MODIS when configured and EONET fallback context otherwise.
+- Scheduled Celery fire ingestion with deduplicated observation persistence.
 - GDELT contextual news search.
 - Explainable evidence-normalized warning score, Forest Doctor, threat cascade, resilience, recovery, intervention, regional comparison and what-if tools.
 - Forest Time Machine using real Sentinel-2 observations.
@@ -30,10 +34,10 @@ This document is deliberately strict. A feature is only described as working whe
 ## Credential-gated integrations
 
 ### NASA FIRMS
-Set `FIRMS_MAP_KEY`. Without it, the API reports the source as unavailable and does not invent a fire count.
+Set `FIRMS_MAP_KEY` to upgrade the fire workflow to pixel-level NOAA-21 + NOAA-20 + MODIS NRT detections. Without the key, VanRakshak keeps the fire workflow operational with EONET event context and NASA GIBS imagery, explicitly labelled as lower-specificity fallback evidence.
 
 ### Protected Planet
-Set `PROTECTED_PLANET_TOKEN` to use its API. Protected-area intelligence can alternatively use the Earth Engine WDPA layer when Earth Engine is configured.
+Set `PROTECTED_PLANET_TOKEN` for official API v4 site/parcels metadata. The selected-point workflow falls back to Earth Engine WDPA when authenticated, then to OSM protected-area containment when neither authenticated source is available.
 
 ### Google Earth Engine
 Set `GOOGLE_CLOUD_PROJECT` and provide Application Default Credentials. Earth Engine enables Dynamic World, Hansen forest change, SRTM terrain, JRC water, MODIS LST/burned area, CHIRPS rainfall, GEDI biomass, WorldPop, human modification, WCMC carbon density and WDPA protected-area layers.
@@ -81,5 +85,6 @@ Before a hackathon demo or production-like deployment:
 6. TiTiler is reachable from the API and browser.
 7. At least one chosen demo forest has two usable Sentinel observations.
 8. Before/after multispectral screening returns real scene IDs and timestamps.
-9. FIRMS key is configured if fire evidence is part of the demo.
-10. Earth Engine credentials are configured if Dynamic World / Hansen / GEDI / WDPA / terrain layers are part of the demo.
+9. `PYTHONPATH=backend python scripts/acceptance_check.py` confirms all 37 capability endpoints, layer render modes and explicit dashboard buttons are wired.
+10. `PYTHONPATH=backend python scripts/verify_public_providers.py` confirms the public Kodagu provider path (Earth Search, Copernicus, Open-Meteo, SoilGrids, ASF, Nominatim, Photon, GIBS, EONET, Overpass and GDELT).
+11. FIRMS / Protected Planet / Earth Engine credentials are optional enhancements; if used in the demo, their provider smoke checks must also pass.

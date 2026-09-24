@@ -160,7 +160,7 @@ async function investigate(lat,lon,place='Selected Forest Region'){
 
 function renderInvestigation(d){const s=d.sources||{};const reverse=s.reverse_geocode?.data||{};const addr=reverse.address||{};if(reverse.display_name){const district=addr.state_district||addr.county||addr.city||addr.town;const st=addr.state;state.regionSub=[district,st,'India'].filter(Boolean).slice(0,3).join(', ');setText('coords',state.regionSub);setText('sumRegionSub',state.regionSub)}
   const shortName=(addr.state_district||addr.county||state.place||'Selected Region').replace(/ district/i,'');setText('sumRegion',shortName);setText('regionTitle',state.place||shortName);
-  const fires=s.fire?.ok?(s.fire.data||[]):[];const fireSource=s.fire?.provenance?.source||'NASA fire intelligence';setText('sumFire',s.fire?.ok?String(fires.length):'—');setText('sumFireDelta',s.fire?.ok?fireSource.replace('NASA ','').slice(0,31):(s.fire?.error||'Fire sources unavailable').slice(0,31));setText('navAlertBadge',s.fire?.ok?String(fires.length):'—');
+  const fires=s.fire?.ok?(s.fire.data||[]):[];const fireSource=s.fire?.provenance?.source||'NASA fire intelligence';const fireFresh=s.fire?.provenance?.freshness||'';const pixelNrt=/FIRMS/i.test(fireSource)&&fireFresh==='LIVE_NRT';setText('sumFire',pixelNrt?String(fires.length):'—');setText('sumFireDelta',pixelNrt?'FIRMS NRT detections':s.fire?.ok?'Context only • '+fireSource.replace('NASA ','').slice(0,22):(s.fire?.error||'Fire sources unavailable').slice(0,31));setText('navAlertBadge',pixelNrt?String(fires.length):'—');
   const cur=s.weather?.ok?s.weather.data?.current:null;if(cur){setText('regionThumb',cur.temperature_2m!=null?`${Math.round(cur.temperature_2m)}°`:'🌲')}
   renderEnvironment(d,state.profile);
   renderNews(s.news);

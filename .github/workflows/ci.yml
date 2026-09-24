@@ -12,6 +12,7 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
       - run: pip install -r backend/requirements.txt
+      - run: python scripts/check_secrets.py
       - run: PYTHONPATH=backend python -m compileall -q backend/app
       - run: PYTHONPATH=backend pytest -q backend/tests
       - uses: actions/setup-node@v4

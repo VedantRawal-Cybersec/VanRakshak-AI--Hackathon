@@ -17,7 +17,7 @@ from app.adapters import (
     OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter,
     FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter,
     EarthSearchAdapter, NominatimAdapter, EarthEngineAdapter, Sentinel1ASFAdapter, OSRMAdapter,
-    BhuvanAdapter, MOSDACAdapter,
+    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter,
 )
 from app.adapters.base import AdapterError
 from app.services.layers import LAYER_GROUPS, FEATURES
@@ -39,6 +39,13 @@ from app.services.evidence import build_chain, partial_risk, pressure_context
 from app.services.model_runtime import status as change_model_status
 from app.services.feature_status import FEATURE_CAPABILITIES
 from app.services.source_health import snapshot as source_health_snapshot
+from app.services.fallbacks import (
+    geocode_search as fallback_geocode_search,
+    reverse_geocode as fallback_reverse_geocode,
+    fire_rows as fallback_fire_rows,
+    protected_context as fallback_protected_context,
+    provider_strategy,
+)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -60,8 +67,8 @@ app = FastAPI(
 weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGridsAdapter()
 overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
 gdelt = GDELTAdapter(); gfw = GFWAdapter(); earth = EarthSearchAdapter()
-geocoder = NominatimAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
-bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter()
+geocoder = NominatimAdapter(); photon = PhotonAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
+bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter()
 
 
 def prov(source, freshness="UNKNOWN", url=None, observed_at=None, notes=None, resolution_m=None):
@@ -83,6 +90,65 @@ async def wrap(name, coro, freshness, url, resolution_m=None):
             ok=False, data=None, error=str(e),
             provenance=prov(name, freshness, url, notes="Unavailable; no fallback environmental values were fabricated."),
         )
+
+
+async def fire_source_result(lat: float, lon: float, days: int = 1):
+    try:
+        info = await fallback_fire_rows(firms, eonet, lat, lon, days)
+        url = firms.source_url if not info.get("degraded") else eonet.source_url
+        notes = info.get("note")
+        if info.get("errors"):
+            notes = (notes or "") + " | Fallback trace: " + "; ".join(info["errors"])
+        return SourceResult(
+            ok=True,
+            data=info.get("rows") or [],
+            provenance=prov(info["source"], info["freshness"], url, notes=notes),
+        )
+    except Exception as exc:
+        return SourceResult(
+            ok=False, data=None, error=str(exc),
+            provenance=prov("NASA fire intelligence", "UNKNOWN", firms.source_url, notes="FIRMS and no-key EONET fallback were both unavailable."),
+        )
+
+
+async def protected_source_result(lat: float, lon: float):
+    try:
+        ctx = await fallback_protected_context(overpass, ee, lat, lon)
+        url = overpass.source_url if ctx.get("degraded") else ee.source_url
+        return SourceResult(
+            ok=True,
+            data=ctx,
+            provenance=prov(ctx["source"], "REFERENCE", url, notes=ctx.get("note")),
+        )
+    except Exception as exc:
+        return SourceResult(
+            ok=False, data=None, error=str(exc),
+            provenance=prov("Protected-area intelligence", "REFERENCE", pp.source_url, notes="Authoritative and public fallback sources were unavailable."),
+        )
+
+
+async def geocode_source_result(q: str):
+    try:
+        result = await fallback_geocode_search(geocoder, photon, q, 5)
+        return SourceResult(
+            ok=True, data=result["data"],
+            provenance=prov(result["source"], "DYNAMIC_RECENT", geocoder.source_url if not result["degraded"] else photon.source_url,
+                            notes=("Fallback used. " + "; ".join(result["errors"])) if result["degraded"] else None),
+        )
+    except Exception as exc:
+        return SourceResult(ok=False, data=None, error=str(exc), provenance=prov("OSM geocoding", "DYNAMIC_RECENT", geocoder.source_url))
+
+
+async def reverse_source_result(lat: float, lon: float):
+    try:
+        result = await fallback_reverse_geocode(geocoder, photon, lat, lon)
+        return SourceResult(
+            ok=True, data=result["data"],
+            provenance=prov(result["source"], "DYNAMIC_RECENT", geocoder.source_url if not result["degraded"] else photon.source_url,
+                            notes=("Fallback used. " + "; ".join(result["errors"])) if result["degraded"] else None),
+        )
+    except Exception as exc:
+        return SourceResult(ok=False, data=None, error=str(exc), provenance=prov("OSM reverse geocoding", "DYNAMIC_RECENT", geocoder.source_url))
 
 
 async def investigation_sources(lat: float, lon: float, place: str):

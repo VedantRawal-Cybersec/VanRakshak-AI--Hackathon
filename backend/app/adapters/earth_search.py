@@ -43,6 +43,62 @@ class EarthSearchAdapter(BaseAdapter):
         end = datetime.now(timezone.utc)
         return await self.search(lat, lon, end - timedelta(days=days), end, "landsat-c2-l2", cloud_lt, 15)
 
+    async def search_sentinel1(self, lat: float, lon: float, start: datetime, end: datetime, limit: int = 60):
+        body = {
+            "collections": ["sentinel-1-grd"],
+            "datetime": f"{start.astimezone(timezone.utc).isoformat()}/{end.astimezone(timezone.utc).isoformat()}",
+            "intersects": {"type": "Point", "coordinates": [lon, lat]},
+            "limit": max(1, min(limit, 100)),
+        }
+        return await self.post_json(f"{settings.earth_search_url}/search", json=body)
+
+    async def latest_sentinel1(self, lat: float, lon: float, days: int = 45, limit: int = 20):
+        end = datetime.now(timezone.utc)
+        return await self.search_sentinel1(lat, lon, end - timedelta(days=days), end, limit)
+
+    @staticmethod
+    def _dt(item: dict):
+        raw=(item.get("properties") or {}).get("datetime")
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw.replace("Z","+00:00"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _s1_key(item: dict):
+        p=item.get("properties") or {}
+        return (
+            str(p.get("sat:orbit_state") or ""),
+            str(p.get("sat:relative_orbit") or p.get("sat:relative_orbit_number") or ""),
+            tuple(sorted(str(x).lower() for x in (p.get("sar:polarizations") or []))),
+        )
+
+    async def closest_sentinel1_pair(self, lat: float, lon: float, before_date: datetime, after_date: datetime, window_days: int = 24):
+        before_data=await self.search_sentinel1(lat,lon,before_date-timedelta(days=window_days),before_date+timedelta(days=window_days),80)
+        after_data=await self.search_sentinel1(lat,lon,after_date-timedelta(days=window_days),after_date+timedelta(days=window_days),80)
+        before_items=[x for x in before_data.get("features",[]) if "vv" in (x.get("assets") or {})]
+        after_items=[x for x in after_data.get("features",[]) if "vv" in (x.get("assets") or {})]
+        best=None; best_score=None
+        for b in before_items:
+            bd=self._dt(b)
+            if not bd: continue
+            bk=self._s1_key(b)
+            for a in after_items:
+                ad=self._dt(a)
+                if not ad: continue
+                ak=self._s1_key(a)
+                # Require same orbit direction and, when available, same relative orbit.
+                if bk[0] and ak[0] and bk[0] != ak[0]: continue
+                if bk[1] and ak[1] and bk[1] != ak[1]: continue
+                common=set((b.get("assets") or {})).intersection((a.get("assets") or {}))
+                if "vv" not in common: continue
+                score=abs((bd-before_date).total_seconds())+abs((ad-after_date).total_seconds())
+                if best_score is None or score < best_score:
+                    best=(b,a); best_score=score
+        return best
+
     async def closest_scene(self, lat: float, lon: float, target_date: datetime, window_days: int = 30, cloud_lt: float = 60):
         data = await self.search(
             lat, lon,

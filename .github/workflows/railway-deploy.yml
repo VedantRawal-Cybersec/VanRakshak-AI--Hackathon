@@ -2,6 +2,18 @@ name: Railway Deploy
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'web/**'
+      - 'config/**'
+      - 'railway.json'
+      - '.github/workflows/railway-deploy.yml'
+
+concurrency:
+  group: railway-production
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -11,6 +23,7 @@ jobs:
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Verify Railway project token
         shell: sh
         run: |
@@ -18,11 +31,12 @@ jobs:
             echo "RAILWAY_TOKEN GitHub secret is required"
             exit 1
           fi
-      - name: Deploy API
-        run: railway up --service api --ci
-      - name: Deploy worker
-        run: railway up --service worker --ci
-      - name: Deploy beat
-        run: railway up --service beat --ci
+
+      - name: Deploy API from this exact GitHub revision
+        run: railway up --service "VanRakshak-API" --environment production --ci
+
+      - name: Deploy worker from this exact GitHub revision
+        run: railway up --service "VanRakshak-Worker" --environment production --ci
+
       - name: Show service status
-        run: railway service status --all --json
+        run: railway status --json

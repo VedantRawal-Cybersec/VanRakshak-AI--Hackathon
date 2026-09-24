@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"backend"))
 
-from app.adapters import EarthSearchAdapter, OpenMeteoAdapter, EONETAdapter, OverpassAdapter, NominatimAdapter
+from app.adapters import EarthSearchAdapter, OpenMeteoAdapter, EONETAdapter, OverpassAdapter, NominatimAdapter, GIBSAdapter
 
 MANIFEST=ROOT/"config"/"demo_forests.json"
 
@@ -41,7 +41,7 @@ def choose_pair(features):
 
 async def one(region):
     lat,lon=region["lat"],region["lon"]
-    earth=EarthSearchAdapter(); meteo=OpenMeteoAdapter(); eonet=EONETAdapter(); over=OverpassAdapter(); nom=NominatimAdapter()
+    earth=EarthSearchAdapter(); meteo=OpenMeteoAdapter(); eonet=EONETAdapter(); over=OverpassAdapter(); nom=NominatimAdapter(); gibs=GIBSAdapter()
     end=datetime.now(timezone.utc); start=end-timedelta(days=730)
     result={"id":region["id"],"name":region["name"],"lat":lat,"lon":lon,"ok":True,"checks":{}}
     try:
@@ -50,10 +50,17 @@ async def one(region):
         pair=choose_pair(features)
         result["checks"]["sentinel2"]={"ok":bool(pair),"scene_count":len(features)}
         if pair:
+            bdate=datetime.fromisoformat(scene_date(pair[0])).replace(tzinfo=timezone.utc)
+            adate=datetime.fromisoformat(scene_date(pair[1])).replace(tzinfo=timezone.utc)
+            sar_pair=await earth.closest_sentinel1_pair(lat,lon,bdate,adate,30)
             result["recommended_demo"]={
                 "before":{"id":pair[0].get("id"),"date":scene_date(pair[0]),"cloud":(pair[0].get("properties") or {}).get("eo:cloud_cover")},
-                "after":{"id":pair[1].get("id"),"date":scene_date(pair[1]),"cloud":(pair[1].get("properties") or {}).get("eo:cloud_cover")}
+                "after":{"id":pair[1].get("id"),"date":scene_date(pair[1]),"cloud":(pair[1].get("properties") or {}).get("eo:cloud_cover")},
+                "sar_matched_pair": bool(sar_pair),
+                "sar_before": (sar_pair[0].get("id") if sar_pair else None),
+                "sar_after": (sar_pair[1].get("id") if sar_pair else None),
             }
+            result["checks"]["sentinel1_matched_pair"]={"ok":bool(sar_pair)}
         else:
             result["ok"]=False
     except Exception as exc:
@@ -70,6 +77,7 @@ async def one(region):
         probe("eonet",eonet.events(lat,lon,30,3,10),lambda x:isinstance(x,dict) and "events" in x),
         probe("protected_fallback",over.containing_protected_areas(lat,lon),lambda x:isinstance(x,dict) and "elements" in x),
         probe("reverse_geocode",nom.reverse(lat,lon),lambda x:isinstance(x,dict) and bool(x)),
+        probe("gibs",gibs.health(),lambda x:isinstance(x,dict) and x.get("ok") is True),
     )
     if not result["checks"].get("weather",{}).get("ok"):
         result["ok"]=False

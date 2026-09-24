@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json
+import asyncio, json, os
 import httpx
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -173,6 +173,18 @@ async def investigation_sources(lat: float, lon: float, place: str):
         vals = await asyncio.gather(*tasks.values())
         return dict(zip(tasks.keys(), [v.model_dump() for v in vals]))
     return await cached_async(key,settings.cache_ttl_s,produce)
+
+
+@app.get("/api/build-info")
+def build_info():
+    return {
+        "git_sha": os.getenv("RAILWAY_GIT_COMMIT_SHA"),
+        "git_branch": os.getenv("RAILWAY_GIT_BRANCH"),
+        "deployment_id": os.getenv("RAILWAY_DEPLOYMENT_ID"),
+        "snapshot_id": os.getenv("RAILWAY_SNAPSHOT_ID"),
+        "environment": settings.environment,
+        "service": settings.app_name,
+    }
 
 
 @app.get("/api/health")

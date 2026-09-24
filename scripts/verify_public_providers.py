@@ -25,6 +25,41 @@ def mercator_tile_bbox(x,y,z):
     miny=maxy-span
     return f"{minx},{miny},{maxx},{maxy}"
 
+async def filtered_satellite_smoke(earth):
+    from datetime import datetime, timezone
+    start=datetime(2025,11,1,tzinfo=timezone.utc)
+    end=datetime(2025,11,16,tzinfo=timezone.utc)
+    data=await earth.search(LAT,LON,start,end,"sentinel-2-l2a",60,30)
+    feats=data.get("features") or []
+    if not feats:
+        raise RuntimeError("No Sentinel-2 scene returned for fixed date/cloud filter")
+    valid=[]
+    for item in feats:
+        p=item.get("properties") or {}
+        dt=str(p.get("datetime") or "")
+        cloud=p.get("eo:cloud_cover")
+        try:
+            when=datetime.fromisoformat(dt.replace("Z","+00:00"))
+        except Exception:
+            continue
+        if start <= when < end and (cloud is None or float(cloud)<60):
+            valid.append(item)
+    if not valid:
+        raise RuntimeError("Earth Search returned scenes outside the requested date/cloud filters")
+    valid.sort(key=lambda item:str((item.get("properties") or {}).get("datetime") or ""),reverse=True)
+    item=valid[0]
+    z=10;x,y=slippy_xy(LAT,LON,z)
+    spec=earth.tile_spec(item,"ndvi")
+    url=spec["tile_url"].replace("{z}",str(z)).replace("{x}",str(x)).replace("{y}",str(y))
+    async with httpx.AsyncClient(timeout=45,follow_redirects=True) as client:
+        r=await client.get(url)
+    ctype=(r.headers.get("content-type") or "").lower()
+    ok=r.status_code==200 and ctype.startswith("image/") and len(r.content)>100
+    if not ok:
+        raise RuntimeError(f"Filtered NDVI tile failed: status={r.status_code} type={ctype} bytes={len(r.content)}")
+    p=item.get("properties") or {}
+    return {"ok":True,"item_id":item.get("id"),"datetime":p.get("datetime"),"cloud_cover":p.get("eo:cloud_cover"),"mode":"ndvi","bytes":len(r.content)}
+
 async def satellite_render_smoke(earth):
     data=await earth.latest_sentinel2(LAT,LON,60,80)
     feats=data.get("features") or []
@@ -104,6 +139,7 @@ async def main():
         check("NASA POWER",power.health(),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Planetary Computer Sentinel-2",pc.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
         check("TiTiler Sentinel-2 six-mode rendering",satellite_render_smoke(earth),lambda x:isinstance(x,dict) and x.get("ok") is True),
+        check("Sentinel-2 filtered date/cloud rendering",filtered_satellite_smoke(earth),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Planetary Computer six-mode rendering",planetary_render_smoke(pc),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("NASA GIBS environmental raster rendering",gibs_render_smoke(gibs),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Overpass protected-area fallback",overpass.containing_protected_areas(LAT,LON),lambda x:isinstance(x,dict) and "elements" in x),
@@ -112,7 +148,7 @@ async def main():
         check("GFW RADD radar layer metadata",asyncio.sleep(0, result=gfw.tile_layer("wur_radd_alerts")),lambda x:isinstance(x,dict) and "wur_radd_alerts" in x.get("tile_url","")),
     )
     print(json.dumps({"location":{"lat":LAT,"lon":LON},"checks":checks},indent=2))
-    core={"Earth Search Sentinel-2","Open-Meteo","MET Norway","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Planetary Computer six-mode rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
+    core={"Earth Search Sentinel-2","Open-Meteo","MET Norway","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Sentinel-2 filtered date/cloud rendering","Planetary Computer six-mode rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
     failed_core=[x for x in checks if x["source"] in core and not x["ok"]]
     if failed_core:
         print("Core public provider smoke failure:",failed_core,file=sys.stderr)

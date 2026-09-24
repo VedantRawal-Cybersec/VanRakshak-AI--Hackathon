@@ -1,0 +1,4 @@
+[
+  {"region":"HOLDOUT_REGION_A","truth":"validation/region_a_truth.tif","prediction":"validation/region_a_prediction.tif"},
+  {"region":"HOLDOUT_REGION_B","truth":"validation/region_b_truth.tif","prediction":"validation/region_b_prediction.tif"}
+]

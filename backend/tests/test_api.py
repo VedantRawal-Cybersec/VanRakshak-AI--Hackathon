@@ -107,7 +107,7 @@ def test_satellite_render_probe_route_registered():
 
 
 def test_gibs_keyless_environmental_wms_specs():
-    for layer in ('viirs_snpp_true_color','viirs_snpp_thermal_anomalies','modis_terra_ndvi_8day','modis_terra_lst_day','imerg_precipitation_rate'):
+    for layer in ('viirs_snpp_true_color','viirs_snpp_thermal_anomalies','modis_terra_ndvi_8day','modis_terra_lst_day','imerg_precipitation_rate','opera_dist_alert_hls','opera_surface_water_hls','smap_soil_moisture'):
         r=client.get('/api/gibs/layer/'+layer,params={'date':'2026-09-20'})
         assert r.status_code==200
         body=r.json()
@@ -115,3 +115,25 @@ def test_gibs_keyless_environmental_wms_specs():
         assert '/wms/epsg3857/best/wms.cgi?' in body['tile_url']
         assert '{bbox-epsg-3857}' in body['tile_url']
         assert body['auth_required'] is False
+
+
+def test_open_source_integration_registry():
+    r=client.get('/api/integrations/open-source')
+    assert r.status_code==200
+    data=r.json()
+    assert data['count']>=8
+    repos={x['repo'] for x in data['integrations']}
+    assert 'developmentseed/titiler' in repos
+    assert 'stac-utils/pystac-client' in repos
+    assert 'microsoft/planetary-computer-sdk-for-python' in repos
+    assert 'earthaccess-dev/earthaccess' in repos
+    assert 'opendatacube/odc-stac' in repos
+
+
+def test_dashboard_has_no_hidden_global_date_filter():
+    from pathlib import Path
+    js_candidates=[Path('/web/app.js'),Path('web/app.js'),Path(__file__).resolve().parents[2]/'web'/'app.js']
+    js=next(p for p in js_candidates if p.exists()).read_text(encoding='utf-8')
+    assert "['startDate','endDate'].forEach(id=>{if($(id))$(id).value=''});" in js
+    assert "satelliteModeQuick" in js
+    assert "sourceFilter" in js and "renderFilter" in js

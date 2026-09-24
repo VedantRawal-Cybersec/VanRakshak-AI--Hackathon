@@ -30,16 +30,10 @@ jobs:
         shell: bash
         run: |
           for i in {1..60}; do
-            if curl -fsS "$BASE_URL/api/demo-scenarios" >/tmp/demo.json; then
-              python - <<'PY'
-              import json
-              data=json.load(open('/tmp/demo.json'))
-              raise SystemExit(0 if data.get('count')==5 else 1)
-              PY
-              if [ $? -eq 0 ]; then
-                echo "Production revision is available"
-                exit 0
-              fi
+            if curl -fsS "$BASE_URL/api/demo-scenarios" >/tmp/demo.json \
+              && python -c "import json; d=json.load(open('/tmp/demo.json')); raise SystemExit(0 if d.get('count')==5 else 1)"; then
+              echo "Production revision is available"
+              exit 0
             fi
             sleep 10
           done

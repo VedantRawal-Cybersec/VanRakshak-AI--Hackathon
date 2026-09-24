@@ -8,8 +8,10 @@ test('production full stack is ready', async ({ request }) => {
   expect((await health.json()).ok).toBeTruthy();
 
   const ready=await request.get('/api/ready');
-  expect(ready.ok()).toBeTruthy();
-  const r=await ready.json();
+  const readyText=await ready.text();
+  console.log('READY_STATUS',ready.status(),'READY_BODY',readyText);
+  expect(ready.ok(),readyText).toBeTruthy();
+  const r=JSON.parse(readyText);
   expect(r.ok).toBeTruthy();
   expect(r.checks.static).toBeTruthy();
   expect(r.checks.database).toBeTruthy();
@@ -49,8 +51,8 @@ test('Kodagu real optical comparison resolves from verified dates', async ({ req
   const body=await res.json();
   expect(body.before?.tile_url).toBeTruthy();
   expect(body.after?.tile_url).toBeTruthy();
-  expect(body.before?.id || body.before?.scene_id).toBeTruthy();
-  expect(body.after?.id || body.after?.scene_id).toBeTruthy();
+  expect(body.before?.item_id).toBeTruthy();
+  expect(body.after?.item_id).toBeTruthy();
 });
 
 test('Kodagu matched Sentinel-1 SAR analysis computes on production', async ({ request }) => {
@@ -63,8 +65,10 @@ test('Kodagu matched Sentinel-1 SAR analysis computes on production', async ({ r
     radius_km:'0.5',window_days:'30',drop_db_threshold:'2.5'
   });
   const res=await request.get('/api/analysis/sar-change?'+q.toString(),{timeout:220000});
-  expect(res.ok()).toBeTruthy();
-  const body=await res.json();
+  const sarText=await res.text();
+  console.log('SAR_STATUS',res.status(),'SAR_BODY',sarText);
+  expect(res.ok(),sarText).toBeTruthy();
+  const body=JSON.parse(sarText);
   expect(body.valid_pixels).toBeGreaterThan(50);
   expect(body.before?.id).toBeTruthy();
   expect(body.after?.id).toBeTruthy();

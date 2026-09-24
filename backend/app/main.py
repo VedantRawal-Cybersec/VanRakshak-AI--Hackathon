@@ -18,7 +18,7 @@ from app.adapters import (
     OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter,
     FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter,
     EarthSearchAdapter, NominatimAdapter, EarthEngineAdapter, Sentinel1ASFAdapter, OSRMAdapter,
-    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter, PlanetaryComputerAdapter,
+    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter,
 )
 from app.adapters.base import AdapterError
 from app.services.layers import LAYER_GROUPS, FEATURES
@@ -71,7 +71,7 @@ weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGrids
 overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
 gdelt = GDELTAdapter(); gfw = GFWAdapter(); earth = EarthSearchAdapter()
 geocoder = NominatimAdapter(); photon = PhotonAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
-bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter(); pc = PlanetaryComputerAdapter()
+bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter(); pc = PlanetaryComputerAdapter(); gnews = GoogleNewsRSSAdapter()
 
 
 def prov(source, freshness="UNKNOWN", url=None, observed_at=None, notes=None, resolution_m=None):
@@ -139,6 +139,36 @@ async def fire_source_result(lat: float, lon: float, days: int = 1):
         )
 
 
+async def news_source_result(place: str, timespan: str = "1week"):
+    errors=[]
+    try:
+        data=await gdelt.forest_news(place,timespan)
+        return SourceResult(
+            ok=True,data=data,
+            provenance=prov("GDELT DOC 2.0","DYNAMIC_RECENT",gdelt.source_url),
+        )
+    except Exception as exc:
+        errors.append(f"GDELT: {exc}")
+    try:
+        data=await gnews.forest_news(place,timespan)
+        return SourceResult(
+            ok=True,data=data,
+            provenance=prov(
+                "Google News RSS","DYNAMIC_RECENT",gnews.source_url,
+                notes="GDELT unavailable; public RSS metadata fallback used. "+"; ".join(errors),
+            ),
+        )
+    except Exception as exc:
+        errors.append(f"Google News RSS: {exc}")
+    return SourceResult(
+        ok=False,data=None,error="; ".join(errors),
+        provenance=prov(
+            "Forest news intelligence","UNKNOWN",gdelt.source_url,
+            notes="No news provider was available; no headlines were fabricated.",
+        ),
+    )
+
+
 async def protected_source_result(lat: float, lon: float):
     try:
         ctx = await fallback_protected_context(overpass, ee, lat, lon)
@@ -193,7 +223,7 @@ async def investigation_sources(lat: float, lon: float, place: str):
             "fire": fire_source_result(lat, lon, 1),
             "natural_events": wrap("NASA EONET", eonet.events(lat, lon, days=30, radius_deg=3, limit=50), "DYNAMIC_RECENT", eonet.source_url),
             "protected_area": protected_source_result(lat, lon),
-            "news": wrap("GDELT", gdelt.forest_news(place), "DYNAMIC_RECENT", gdelt.source_url),
+            "news": news_source_result(place),
             "reverse_geocode": reverse_source_result(lat, lon),
         }
         vals = await asyncio.gather(*tasks.values())
@@ -763,7 +793,7 @@ async def protected_context_ep(lat: float, lon: float):
 
 @app.get("/api/news", response_model=SourceResult)
 async def news_ep(place: str = Query(..., min_length=2), timespan: str = "1week"):
-    return await wrap("GDELT DOC 2.0", gdelt.forest_news(place, timespan), "DYNAMIC_RECENT", gdelt.source_url)
+    return await news_source_result(place,timespan)
 
 
 @app.get("/api/gfw", response_model=SourceResult)

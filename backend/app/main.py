@@ -212,20 +212,24 @@ async def ready():
         checks["database_error"]=str(exc)
 
     production=settings.environment.lower() in {"production","prod","railway"}
-    redis_result=await redis_ping()
-    checks["redis"]=bool(redis_result.get("ok"))
-    if not checks["redis"]:
-        checks["redis_error"]=redis_result.get("error")
+    if production:
+        redis_result=await redis_ping()
+        checks["redis"]=bool(redis_result.get("ok"))
+        if not checks["redis"]:
+            checks["redis_error"]=redis_result.get("error")
 
-    checks["titiler"]=False
-    try:
-        url=settings.titiler_internal_url.rstrip("/")+"/"
-        async with httpx.AsyncClient(timeout=3.0,follow_redirects=True) as client:
-            response=await client.get(url)
-        checks["titiler"]=response.status_code < 500
-        checks["titiler_status"]=response.status_code
-    except Exception as exc:
-        checks["titiler_error"]=str(exc)
+        checks["titiler"]=False
+        try:
+            url=settings.titiler_internal_url.rstrip("/")+"/"
+            async with httpx.AsyncClient(timeout=3.0,follow_redirects=True) as client:
+                response=await client.get(url)
+            checks["titiler"]=response.status_code < 500
+            checks["titiler_status"]=response.status_code
+        except Exception as exc:
+            checks["titiler_error"]=str(exc)
+    else:
+        checks["redis"]="OPTIONAL_IN_DEVELOPMENT"
+        checks["titiler"]="OPTIONAL_IN_DEVELOPMENT"
 
     required=["static","database"] + (["redis","titiler"] if production else [])
     ok=all(bool(checks.get(k)) for k in required)

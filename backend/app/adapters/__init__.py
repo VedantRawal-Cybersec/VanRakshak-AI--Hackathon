@@ -16,3 +16,5 @@ from .mosdac import MOSDACAdapter
 from .gibs import GIBSAdapter
 from .eonet import EONETAdapter
 from .photon import PhotonAdapter
+
+from .nasa_power import NASAPowerAdapter

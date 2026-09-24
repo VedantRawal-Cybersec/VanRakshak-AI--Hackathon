@@ -64,6 +64,34 @@
       "status": "VETTED_NEXT",
       "purpose": "Sentinel Hub Python access and processing client",
       "vanrakshak_use": "Optional future provider diversification; not required for current keyless core"
+    },
+    {
+      "repo": "sentinel-hub/sentinel2-cloud-detector",
+      "category": "cloud-masking",
+      "status": "VETTED_NEXT",
+      "purpose": "Sentinel-2 cloud probability/mask generation",
+      "vanrakshak_use": "Future pixel-level cloud masking for optical change detection; keep current L2A/cloud-metadata path until validated"
+    },
+    {
+      "repo": "torchgeo/torchgeo",
+      "category": "geospatial-ml",
+      "status": "VETTED_NEXT",
+      "purpose": "Geospatial datasets, samplers, transforms and pretrained models",
+      "vanrakshak_use": "Future validated deforestation/change model training and evaluation"
+    },
+    {
+      "repo": "corteva/rioxarray",
+      "category": "raster-analysis",
+      "status": "VETTED_NEXT",
+      "purpose": "Rasterio-backed geospatial xarray extension",
+      "vanrakshak_use": "Future multi-scene raster stacks, reprojection and scalable analysis"
+    },
+    {
+      "repo": "opengeos/segment-geospatial",
+      "category": "segmentation",
+      "status": "VETTED_RESEARCH",
+      "purpose": "SAM-based geospatial image segmentation",
+      "vanrakshak_use": "Optional research path for delineating disturbance polygons; not production until benchmarked against forest labels"
     }
   ]
 }

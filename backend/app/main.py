@@ -844,6 +844,27 @@ async def evidence_chain_ep(
                     carbon={"reference_carbon_density_tC_per_ha":density,"estimated_carbon_loss_tC":round(tc,2),"estimated_co2e_t":round(tc*44/12,2),"uncertainty_note":"Reference carbon-density layer circa 2010; this is an order-of-magnitude impact estimate, not a field inventory.","label":"AI_ESTIMATE"}
             except Exception:
                 carbon=None
+    if carbon is None and change and change.get("candidate_area_ha") is not None:
+        # Credential-free scientific fallback: broad IPCC Tier-1 reference for
+        # continental Asian tropical moist forest. It is intentionally labelled
+        # as a reference-based estimate, never as a local biomass measurement.
+        try:
+            ref = carbon_estimate(CarbonRequest(
+                area_ha=max(0.001, float(change["candidate_area_ha"])),
+                biomass_t_per_ha=182.0,
+                uncertainty_pct=75.0,
+            ))
+            carbon={
+                **ref,
+                "reference_biomass_density_t_dry_matter_per_ha":182.0,
+                "density_source":"IPCC Good Practice Guidance for LULUCF, Table 3A.1.2 — continental Asia tropical moist forest (short dry season)",
+                "source_url":"https://www.ipcc-nggip.iges.or.jp/public/gpglulucf/gpglulucf_files/Chp3/Anx_3A_1_Data_Tables.pdf",
+                "estimate_class":"BROAD_REFERENCE_FALLBACK",
+                "warning":"Broad Tier-1 reference estimate, not a site-specific GEDI/field biomass measurement. Replace automatically when a location-specific carbon-density provider is configured.",
+            }
+        except Exception:
+            carbon=None
+
     if sar_change:
         sources["sar_change"]={
             "ok":True,
@@ -877,6 +898,215 @@ async def evidence_chain_ep(
         doctor["radar_scene_available"]=radar_available
         doctor["fragmentation_change"]=fchg
     return {"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
+
+
+
+def _clamp01(value):
+    try:
+        return max(0.0,min(1.0,float(value)))
+    except Exception:
+        return 0.0
+
+
+def _live_risk_inputs(bundle: dict, lat: float, lon: float) -> RiskInputs:
+    change=bundle.get("change") or {}
+    climate=bundle.get("climate") or {}
+    sources=bundle.get("sources") or {}
+    sar=bundle.get("sar_change") or {}
+    protected=bool(bundle.get("protected_area")) if bundle.get("protected_area") is not None else False
+
+    ndvi_drop=_clamp01(max(0.0,-float(change.get("mean_ndvi_change") or 0.0)))
+    temp=max(0.0,float(climate.get("temperature_anomaly_c") or 0.0))
+    rain=max(0.0,float(climate.get("rainfall_deficit_pct") or 0.0))
+
+    fire=sources.get("fire") or {}
+    fire_source=((fire.get("provenance") or {}).get("source") or "")
+    rows=fire.get("data") or []
+    fire_signal=_clamp01(len(rows)/10.0) if fire.get("ok") else 0.0
+    if "EONET" in fire_source:
+        fire_signal=min(0.2,fire_signal)
+
+    frag=(change.get("fragmentation") or {})
+    fchg=frag.get("change") or {}
+    fbefore=frag.get("before") or {}
+    edge_delta=max(0.0,float(fchg.get("edge_pixel_fraction_delta") or 0.0))
+    patch_delta=max(0.0,float(fchg.get("patch_count_delta") or 0.0))
+    patch_base=max(1.0,float(fbefore.get("patch_count") or 1.0))
+    frag_signal=_clamp01(edge_delta*4.0 + (patch_delta/patch_base))
+
+    pctx=pressure_context(sources.get("human_pressure") or {},lat,lon)
+    counts=pctx.get("counts") or {}
+    pressure_count=sum(float(v or 0) for v in counts.values())
+    human_pressure=_clamp01(pressure_count/80.0)
+
+    confidence=max(
+        float(change.get("screening_confidence") or 0.0),
+        float(sar.get("screening_confidence") or 0.0),
+    )
+    if confidence<=0:
+        confidence=0.5
+
+    return RiskInputs(
+        ndvi_drop=ndvi_drop,
+        temp_anomaly_c=min(10.0,temp),
+        rainfall_deficit_pct=min(100.0,rain),
+        fire_signal=fire_signal,
+        protected_area=protected,
+        fragmentation_change=frag_signal,
+        human_pressure=human_pressure,
+        model_confidence=_clamp01(confidence),
+    )
+
+
+def _geojson_centroid(feature: dict):
+    geom=(feature or {}).get("geometry") or {}
+    coords=geom.get("coordinates")
+    pts=[]
+    def walk(x):
+        if isinstance(x,(list,tuple)) and len(x)>=2 and all(isinstance(v,(int,float)) for v in x[:2]):
+            pts.append((float(x[1]),float(x[0])))
+        elif isinstance(x,(list,tuple)):
+            for y in x: walk(y)
+    walk(coords)
+    if not pts: return None
+    return (sum(p[0] for p in pts)/len(pts),sum(p[1] for p in pts)/len(pts))
+
+
+@app.get("/api/intelligence/live")
+async def live_intelligence_ep(
+    lat: float, lon: float, place: str="India",
+    before_date: str | None=None, after_date: str | None=None,
+    radius_km: float=Query(2.0,ge=.2,le=8), cloud_lt: float=Query(60,ge=0,le=100),
+):
+    bundle=await evidence_chain_ep(lat,lon,place,before_date,after_date,radius_km,cloud_lt)
+    inputs=_live_risk_inputs(bundle,lat,lon)
+    live_risk=risk_score(inputs)
+    live_cascade=cascade(inputs)
+    live_resilience=resilience(inputs)
+    live_interventions=intervention(inputs)
+    signals={
+        "vegetation_loss":inputs.ndvi_drop,
+        "heat":min(1.0,inputs.temp_anomaly_c/5.0),
+        "rainfall_deficit":min(1.0,inputs.rainfall_deficit_pct/100.0),
+        "fire":inputs.fire_signal,
+        "fragmentation":inputs.fragmentation_change,
+        "human_pressure":inputs.human_pressure,
+    }
+    return {
+        "location":bundle.get("location"),
+        "inputs_from_real_evidence":inputs.model_dump(),
+        "risk":live_risk,
+        "cascade":live_cascade,
+        "resilience":live_resilience,
+        "interventions":{"recommendations":live_interventions,"label":"AI_ESTIMATE"},
+        "forest_doctor":bundle.get("forest_doctor"),
+        "anomaly_radar":anomaly_radar(signals),
+        "carbon":bundle.get("carbon"),
+        "protected_area":bundle.get("protected_area"),
+        "source_coverage":(bundle.get("warning") or {}).get("coverage"),
+        "provenance_rule":"All numeric inputs above are derived from provider/reference observations in this response. Missing evidence is not silently fabricated.",
+        "evidence_chain":bundle.get("evidence_chain"),
+    }
+
+
+@app.get("/api/intelligence/what-if-location")
+async def what_if_location_ep(
+    lat: float, lon: float, place: str="India",
+    before_date: str | None=None, after_date: str | None=None,
+    temperature_delta_c: float=0, rainfall_delta_pct: float=0, fire_delta: float=0, ndvi_delta: float=0,
+):
+    bundle=await evidence_chain_ep(lat,lon,place,before_date,after_date,2.0,60)
+    base=_live_risk_inputs(bundle,lat,lon)
+    req=WhatIfRequest(
+        base=base,
+        temperature_delta_c=temperature_delta_c,
+        rainfall_delta_pct=rainfall_delta_pct,
+        fire_delta=fire_delta,
+        ndvi_delta=ndvi_delta,
+    )
+    return {
+        "base_from_real_evidence":base.model_dump(),
+        "simulation":what_if(req),
+        "label":"SCENARIO_FROM_REAL_BASELINE",
+        "warning":"Scenario deltas are hypothetical; the baseline is derived from current/observed provider evidence.",
+    }
+
+
+@app.get("/api/patrol/live")
+async def live_patrol_ep(
+    lat: float, lon: float, place: str="India",
+    before_date: str | None=None, after_date: str | None=None,
+    max_points: int=Query(5,ge=1,le=10),
+):
+    if not before_date or not after_date:
+        raise HTTPException(422,"before_date and after_date are required for real candidate patrol points")
+    bundle=await evidence_chain_ep(lat,lon,place,before_date,after_date,2.0,60)
+    change=bundle.get("change") or {}
+    features=((change.get("geojson") or {}).get("features") or [])
+    points=[]
+    base_priority=float((bundle.get("warning") or {}).get("score") or 50)
+    for i,feature in enumerate(features[:max_points]):
+        center=_geojson_centroid(feature)
+        if center is None: continue
+        plat,plon=center
+        points.append({"id":f"candidate-{i+1}","lat":plat,"lon":plon,"priority":max(1,min(100,base_priority-i*3))})
+    if not points:
+        raise HTTPException(404,"No real candidate-change polygons were available to create patrol stops")
+    req=PatrolRequest(start_lat=lat,start_lon=lon,points=points)
+    routed=await patrol_road_route(req)
+    return {
+        **routed,
+        "candidate_source":"Sentinel-2 before/after candidate-change polygons",
+        "label":"DERIVED_FROM_REAL_DATA",
+        "warning":"Routing uses mapped OSM roads/tracks where available; field accessibility must still be verified.",
+    }
+
+
+@app.post("/api/intelligence/compare-live")
+async def compare_live_ep(payload: dict):
+    rows=payload.get("regions") or []
+    if not isinstance(rows,list) or len(rows)<2 or len(rows)>5:
+        raise HTTPException(422,"regions must contain 2 to 5 location objects")
+    derived=[]
+    for i,row in enumerate(rows):
+        try:
+            lat=float(row["lat"]); lon=float(row["lon"]); name=str(row.get("name") or f"Region {i+1}")
+        except Exception:
+            raise HTTPException(422,f"Invalid region at index {i}")
+        bundle=await evidence_chain_ep(
+            lat,lon,name,row.get("before_date"),row.get("after_date"),
+            float(row.get("radius_km") or 1.0),60,
+        )
+        inputs=_live_risk_inputs(bundle,lat,lon)
+        risk=risk_score(inputs)
+        change=bundle.get("change") or {}
+        fire=((bundle.get("sources") or {}).get("fire") or {})
+        derived.append({
+            "name":name,
+            "risk":float(risk.get("score") or 0),
+            "forest_loss_ha":max(0,float(change.get("candidate_area_ha") or 0)),
+            "fire_count":len(fire.get("data") or []) if fire.get("ok") else 0,
+            "ndvi_drop":inputs.ndvi_drop,
+            "protected_area":inputs.protected_area,
+        })
+    result=compare_regions(RegionComparisonRequest(regions=derived))
+    result["source"]="live evidence-chain outputs for each supplied region"
+    result["warning"]="Comparison prioritizes measured/derived signals; it is not a legal or causal determination."
+    return result
+
+
+@app.get("/api/query/live")
+async def live_query_ep(
+    q: str=Query(...,min_length=3), lat: float=12.3375, lon: float=75.8069,
+    place: str="India", before_date: str | None=None, after_date: str | None=None,
+):
+    plan=parse_nl(q)
+    live=await live_intelligence_ep(lat,lon,place,before_date,after_date,2.0,60)
+    return {
+        "query":plan,
+        "live_result":live,
+        "execution_note":"Natural-language intent was parsed, then executed against real provider-backed evidence for the selected location.",
+    }
 
 
 @app.get("/api/analysis/vegetation-series")

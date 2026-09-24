@@ -98,10 +98,14 @@ tests.append(("04 Before-After Comparison",lambda: (
     (lambda b: f"{b.get('before',{}).get('item_id')} -> {b.get('after',{}).get('item_id')}" if b.get("before",{}).get("tile_url") and b.get("after",{}).get("tile_url") else (_ for _ in ()).throw(AssertionError(b)))
     (cached_get(q("/api/map/compare",lat=LAT,lon=LON,before_date=BEFORE,after_date=AFTER,mode="true_color",cloud_lt=60),120))
 )))
-tests.append(("05 Multi-Spectral Analysis",lambda: (
-    (lambda b: f"indices={list((b.get('multispectral') or {}).keys())}" if all(k in (b.get("multispectral") or {}) for k in ["mean_ndmi_change","mean_nbr_change","mean_ndwi_change"]) else (_ for _ in ()).throw(AssertionError(b)))
-    (cached_get(remote_path,220))
-)))
+def satellite_modes_test():
+    b=cached_get(q("/api/map/satellite-modes/status",lat=LAT,lon=LON,start_date=BEFORE,end_date=AFTER,cloud_lt=60),300)
+    rows=b.get("modes") or []
+    if not b.get("ok") or len(rows)!=6 or not all(x.get("ok") for x in rows):
+        raise AssertionError(b)
+    return "rendered="+",".join(x["mode"] for x in rows)
+
+tests.append(("05 Multi-Spectral Analysis",satellite_modes_test))
 tests.append(("06 Multi-Layer Earth Map",lambda: (
     (lambda b: f"groups={len(b.get('groups') or [])}" if len(b.get("groups") or [])>=5 else (_ for _ in ()).throw(AssertionError(b)))
     (cached_get("/api/layers",30))

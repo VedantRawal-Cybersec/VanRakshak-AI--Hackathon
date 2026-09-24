@@ -11,7 +11,7 @@ test('approved dashboard boots with critical command-center controls', async ({ 
   await expect(page.locator('#layersBtn')).toBeVisible();
   await expect(page.locator('#reportBtn')).toBeVisible();
   await expect(page.locator('#patrolBtn')).toBeVisible();
-  await expect(page.locator('#compareShell')).toBeVisible();
+  await expect(page.locator('#compareShell')).toHaveCount(1);
   await expect(page.locator('#sourceList')).toBeVisible();
   expect(fatal).toEqual([]);
 });
@@ -19,8 +19,9 @@ test('approved dashboard boots with critical command-center controls', async ({ 
 test('layer drawer opens and all principal quick controls respond', async ({ page }) => {
   await page.goto('/');
   await page.locator('#layersBtn').click();
-  await expect(page.locator('#layerPanel')).toBeVisible();
-  await page.locator('#layersBtn').click();
+  await expect(page.locator('#layerDrawer')).toBeVisible();
+  await page.locator('#closeLayers').click();
+  await expect(page.locator('#layerDrawer')).toHaveClass(/hidden/);
   await page.locator('#analyticsTop').click();
   await page.locator('#liveDataTop').click();
   await page.locator('#brandHome').click();

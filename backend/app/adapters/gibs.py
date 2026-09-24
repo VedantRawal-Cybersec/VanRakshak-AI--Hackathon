@@ -49,25 +49,20 @@ class GIBSAdapter(BaseAdapter):
             "label": "GPM IMERG Precipitation Rate",
             "format": "png", "service": "wms", "max_zoom": 7, "resolution_m": 10000,
         },
-        "hls_ndvi_sentinel": {
-            "identifier": "HLS_NDVI_Sentinel",
-            "label": "HLS Sentinel NDVI",
+        "opera_dist_alert_hls": {
+            "identifier": "OPERA_L3_DIST-ALERT-HLS_Color_Index",
+            "label": "NASA OPERA HLS Disturbance Alert",
             "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
         },
-        "hls_ndwi_sentinel": {
-            "identifier": "HLS_NDWI_Sentinel",
-            "label": "HLS Sentinel NDWI",
+        "opera_surface_water_hls": {
+            "identifier": "OPERA_L3_Dynamic_Surface_Water_Extent-HLS",
+            "label": "NASA OPERA HLS Dynamic Surface Water",
             "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
         },
-        "hls_moisture_sentinel": {
-            "identifier": "HLS_Moisture_Index_Sentinel",
-            "label": "HLS Sentinel Moisture Index",
-            "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
-        },
-        "hls_nbr_sentinel": {
-            "identifier": "HLS_NBR_Sentinel",
-            "label": "HLS Sentinel NBR",
-            "format": "png", "service": "wms", "max_zoom": 12, "resolution_m": 30,
+        "smap_soil_moisture": {
+            "identifier": "SMAP_L2_Passive_Day_Soil_Moisture_Option2",
+            "label": "NASA SMAP Day Soil Moisture",
+            "format": "png", "service": "wms", "max_zoom": 8, "resolution_m": 36000,
         },
         "viirs_snpp_false_color": {
             "identifier": "VIIRS_SNPP_CorrectedReflectance_BandsM11-I2-I1",

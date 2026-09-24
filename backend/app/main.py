@@ -427,6 +427,25 @@ async def fire_intelligence(lat: float, lon: float, days: int = Query(1, ge=1, l
     }
 
 
+@app.get("/api/fire/history")
+def fire_history(limit: int = Query(200, ge=1, le=2000)):
+    try:
+        from app.db import SessionLocal, FireObservationRecord
+        with SessionLocal() as db:
+            rows=db.query(FireObservationRecord).order_by(FireObservationRecord.ingested_at.desc()).limit(limit).all()
+            return {
+                "count":len(rows),
+                "observations":[{
+                    "id":r.id,"ingested_at":r.ingested_at.isoformat() if r.ingested_at else None,
+                    "source":r.source,"observed_at":r.observed_at,"lat":r.lat,"lon":r.lon,
+                    "frp":r.frp,"confidence":r.confidence,"payload":r.payload,
+                } for r in rows],
+                "source":"VanRakshak scheduled fire observation store",
+            }
+    except Exception as exc:
+        raise HTTPException(503, f"Fire history persistence unavailable: {exc}")
+
+
 @app.get("/api/eonet/events")
 async def eonet_events(lat: float, lon: float, days: int = Query(30, ge=1, le=365), radius_deg: float = Query(3, ge=.2, le=20)):
     return await wrap("NASA EONET", eonet.events(lat, lon, days=days, radius_deg=radius_deg), "DYNAMIC_RECENT", eonet.source_url)

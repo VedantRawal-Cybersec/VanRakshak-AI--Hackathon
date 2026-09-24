@@ -12,6 +12,7 @@ LAYER_GROUPS = [
         {"id":"forest_cover","label":"Forest / Tree Probability","source":"Dynamic World + public fallbacks","freshness":"DYNAMIC_RECENT","resolution_m":10,"render":"earth_engine","ee_layer":"dynamic_world_trees"},
         {"id":"forest_loss","label":"Integrated Forest Disturbance Alerts","source":"Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"gfw_integrated_alerts"},
         {"id":"glad_s2","label":"GLAD Sentinel-2 Alerts","source":"Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"umd_glad_sentinel2_alerts"},
+        {"id":"radd_radar","label":"RADD Sentinel-1 Radar Alerts","source":"Wageningen / Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"wur_radd_alerts"},
         {"id":"hansen_loss","label":"Historical Tree Cover Loss","source":"Hansen / GFW public tiles","freshness":"HISTORICAL","resolution_m":30,"render":"gfw","dataset":"umd_tree_cover_loss"},
         {"id":"tree_cover_2000","label":"Tree Cover Density 2000","source":"GFW","freshness":"REFERENCE","render":"gfw","dataset":"umd_tree_cover_density_2000"},
         {"id":"forest_gain","label":"Tree Cover Gain","source":"Global Forest Watch","freshness":"HISTORICAL","render":"gfw","dataset":"umd_tree_cover_gain"},

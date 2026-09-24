@@ -6,12 +6,13 @@ from .firms import FIRMSAdapter
 from .protected_planet import ProtectedPlanetAdapter
 from .gdelt import GDELTAdapter
 from .gfw import GFWAdapter
-
 from .earth_search import EarthSearchAdapter
 from .nominatim import NominatimAdapter
 from .earth_engine import EarthEngineAdapter
-
 from .sentinel1_asf import Sentinel1ASFAdapter
 from .osrm import OSRMAdapter
 from .bhuvan import BhuvanAdapter
 from .mosdac import MOSDACAdapter
+from .gibs import GIBSAdapter
+from .eonet import EONETAdapter
+from .photon import PhotonAdapter

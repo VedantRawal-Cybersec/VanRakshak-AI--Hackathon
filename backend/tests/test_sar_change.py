@@ -34,3 +34,15 @@ def test_s1_item_projection_metadata_builds_grid():
     assert crs.to_epsg()==4326
     assert transform.a==0.001
     assert transform.e==-0.001
+
+
+def test_s1_projection_accepts_exact_transposed_archive_shape():
+    class Src:
+        width=25547
+        height=16744
+        crs=None
+        transform=None
+    item={"properties":{"proj:epsg":4326,"proj:shape":[25547,16744],"proj:transform":[0.0001,0,75.0,0,-0.0001,13.0]}}
+    transform,crs=sar_change._item_grid(item,Src())
+    assert crs.to_epsg()==4326
+    assert transform.a==0.0001

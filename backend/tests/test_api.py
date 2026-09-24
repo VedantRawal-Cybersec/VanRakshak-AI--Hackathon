@@ -58,3 +58,27 @@ def test_cache_status_reports_resilient_backend():
     r=client.get('/api/cache/status')
     assert r.status_code==200
     assert r.json()['persistent_backend']=='redis_with_memory_fallback'
+
+
+def test_all_37_features_default_to_real_data_paths():
+    r=client.get('/api/features/status')
+    assert r.status_code==200
+    data=r.json()
+    assert data['count']==37
+    assert all(x.get('real_data_default') is True for x in data['features'])
+    assert all(x.get('data_mode') for x in data['features'])
+    assert all(x.get('preferred_endpoint','').startswith('/api/') for x in data['features'])
+
+
+def test_dashboard_uses_real_evidence_endpoints_for_core_actions():
+    from pathlib import Path
+    js_candidates=[Path('/web/app.js'),Path('web/app.js'),Path(__file__).resolve().parents[2]/'web'/'app.js']
+    js=next(p for p in js_candidates if p.exists()).read_text(encoding='utf-8')
+    assert '/api/query/live?' in js
+    assert '/api/intelligence/predict-location?' in js
+    assert '/api/intelligence/what-if-location?' in js
+    assert '/api/patrol/live?' in js
+    assert "/api/query?q=" not in js
+    assert "api('/api/intelligence/predict'" not in js
+    assert "api('/api/intelligence/what-if'" not in js
+    assert "api('/api/patrol/road-route'" not in js

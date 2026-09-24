@@ -1,6 +1,10 @@
 name: Provider Smoke Test
 
 on:
+  push:
+    paths:
+      - 'scripts/verify_providers.py'
+      - '.github/workflows/provider-smoke.yml'
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * *'

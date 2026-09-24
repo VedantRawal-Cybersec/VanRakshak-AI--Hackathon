@@ -1,5 +1,9 @@
 name: Production E2E
 
+concurrency:
+  group: production-e2e
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
     inputs:

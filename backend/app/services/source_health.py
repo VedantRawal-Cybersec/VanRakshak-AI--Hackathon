@@ -9,8 +9,6 @@ from app.config import settings
 
 async def _probe(name: str, coro: Awaitable[Any] | None, *, configured: bool = True, note: str | None = None):
     if not configured:
-        # snapshot() may receive an already-created coroutine for a credential-gated
-        # provider. Explicitly close it so CI/runtime never leak un-awaited coroutines.
         close = getattr(coro, "close", None)
         if callable(close):
             close()
@@ -26,12 +24,6 @@ async def _probe(name: str, coro: Awaitable[Any] | None, *, configured: bool = T
 
 
 async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 77.5946):
-    """Return a non-fabricated provider-health snapshot.
-
-    Public providers are actually queried. Credential-gated providers are marked NOT_CONFIGURED
-    rather than being treated as failures. The endpoint is intended for command-center health UI,
-    not environmental science or alert scoring.
-    """
     checks = [
         _probe("Copernicus STAC", adapters["copernicus"].latest_sentinel2(lat, lon, 14, 80)),
         _probe("Earth Search", adapters["earth"].latest_sentinel2(lat, lon, 14, 80)),
@@ -43,21 +35,28 @@ async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 
             "NASA FIRMS",
             adapters["firms"].fires(lat, lon),
             configured=bool(settings.firms_map_key),
-            note="Set FIRMS_MAP_KEY to enable NRT fire health checks.",
+            note="FIRMS key not configured. VanRakshak automatically uses EONET/GIBS context as a no-key fallback.",
         ),
         _probe(
             "Protected Planet",
             adapters["pp"].india(1),
             configured=bool(settings.protected_planet_token),
-            note="Set PROTECTED_PLANET_TOKEN to enable API v4 health checks.",
+            note="Protected Planet token not configured. OSM protected-area context remains available.",
         ),
         _probe(
             "Google Earth Engine",
             asyncio.to_thread(adapters["ee"].health),
             configured=bool(settings.google_cloud_project),
-            note="Set GOOGLE_CLOUD_PROJECT and authenticate the official earthengine-api client to enable Earth Engine layers.",
+            note="Earth Engine is optional; public GFW/Sentinel/NASA fallbacks remain available.",
         ),
     ]
+    if "gibs" in adapters:
+        checks.append(_probe("NASA GIBS", adapters["gibs"].health()))
+    if "eonet" in adapters:
+        checks.append(_probe("NASA EONET", adapters["eonet"].events(lat, lon, days=2, radius_deg=3, limit=1)))
+    if "photon" in adapters:
+        checks.append(_probe("Photon Geocoder", adapters["photon"].search("Bengaluru", 1)))
+
     rows = await asyncio.gather(*checks)
     configured = [r for r in rows if r["status"] != "NOT_CONFIGURED"]
     ok_count = sum(1 for r in configured if r["ok"])
@@ -66,5 +65,10 @@ async def snapshot(adapters: dict[str, Any], lat: float = 12.9716, lon: float = 
         "configured_sources": len(configured),
         "healthy_sources": ok_count,
         "sources": rows,
-        "note": "Provider health is operational telemetry only. It does not imply that newest imagery exists for every AOI.",
+        "fallback_ready": {
+            "fire": any(r["source"] in {"NASA EONET","NASA GIBS"} and r["ok"] for r in rows),
+            "geocoding": any(r["source"] in {"Nominatim","Photon Geocoder"} and r["ok"] for r in rows),
+            "satellite": any(r["source"] in {"Earth Search","Copernicus STAC","NASA GIBS"} and r["ok"] for r in rows),
+        },
+        "note": "Health is operational telemetry only. Missing credential-gated sources do not disable their credential-free fallbacks.",
     }

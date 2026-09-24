@@ -67,7 +67,31 @@ async function toggleLayer(def,enabled,checkbox){if(!def)return;if(!enabled){cle
   else if(def.render==='firms_points'){await enableFireLayer(def.id)}
   else if(def.render==='protected_context'){const s=await api(`/api/protected-area/context?lat=${state.lat}&lon=${state.lon}`);if(!s.ok)throw new Error(s.error||'Protected-area context unavailable');const areas=s.data?.areas||[];const feats=areas.map(a=>{const c=a.center;if(!c?.lat||!c?.lon)return null;return {type:'Feature',geometry:{type:'Point',coordinates:[Number(c.lon),Number(c.lat)]},properties:a.tags||{}}}).filter(Boolean);if(feats.length)addGeoPoints(def.id,feats,'#26d98b');toast(`${s.data?.inside?'Inside':'No containing'} protected area • ${s.provenance?.source||'reference source'}`)}
   else if(def.render==='overpass'){const s=await api(`/api/human-pressure?lat=${state.lat}&lon=${state.lon}&radius_m=10000`);if(!s.ok)throw new Error(s.error||'Human-pressure provider unavailable');const feats=(s.data?.elements||[]).map(e=>{const lat=e.lat??e.center?.lat,lon=e.lon??e.center?.lon;if(lat==null||lon==null)return null;return {type:'Feature',geometry:{type:'Point',coordinates:[Number(lon),Number(lat)]},properties:e.tags||{}}}).filter(Boolean);addGeoPoints(def.id,feats,'#f2b43a');toast(`${feats.length} mapped human-pressure features`)}
-  else{if(checkbox)checkbox.checked=false;toast(`${def.label} is available in the investigation/profile panels.`)}
+  else if(def.render==='metadata'||def.render==='planned_adapter'){
+    const endpoint=def.id==='sentinel1'?'/api/satellite/sentinel1':def.id==='landsat'?'/api/satellite/landsat':'/api/satellite/latest';
+    const s=await api(`${endpoint}?lat=${state.lat}&lon=${state.lon}&days=90`);if(!s.ok)throw new Error(s.error||'Catalogue unavailable');
+    const rows=s.data?.features||[];const feats=rows.filter(x=>x.geometry).map(x=>({type:'Feature',geometry:x.geometry,properties:{id:x.id,...(x.properties||{})}}));
+    if(feats.length)addGeoPolygon(def.id,{type:'FeatureCollection',features:feats},def.id==='sentinel1'?'#4ea8ff':'#56d893');
+    toast(`${def.label}: ${rows.length} catalogue scenes found`);
+  }
+  else if(def.render==='point_data'){
+    showTab('environment');let s;
+    if(['soil_type','soil_ph','soc','nitrogen','texture','bulk_density','cec'].includes(def.id))s=await api(`/api/soil?lat=${state.lat}&lon=${state.lon}`);
+    else s=await api(`/api/weather?lat=${state.lat}&lon=${state.lon}`);
+    if(!s.ok)throw new Error(s.error||'Point data unavailable');
+    addGeoPoints(def.id,[{type:'Feature',geometry:{type:'Point',coordinates:[state.lon,state.lat]},properties:{layer:def.label,source:s.provenance?.source||def.source}}],'#4ea8ff');
+    toast(`${def.label} loaded • ${s.provenance?.source||def.source}`);
+  }
+  else if(def.render==='analysis'){
+    showTab('analysis');
+    if(def.id==='fire_risk'){const d=await api(`/api/fire/intelligence?lat=${state.lat}&lon=${state.lon}&days=1`);toast(`Fire-weather context: ${d.context_level} • ${d.context_score}/100`)}
+    else if(['temperature_anomaly','rainfall_anomaly','drought'].includes(def.id)){const d=await api(`/api/climate/anomaly?lat=${state.lat}&lon=${state.lon}`);toast(`${def.label}: temp Δ ${fmt(d.temperature_anomaly_c,1)}°C • rain deficit ${fmt(d.rainfall_deficit_pct,0)}%`)}
+    else if(def.id==='vegetation_health'){const d=await api(`/api/analysis/vegetation-series?lat=${state.lat}&lon=${state.lon}&start=${isoDate(yearAgo)}&end=${isoDate(now)}&max_observations=8`);toast(`Vegetation health: ${(d.observations||[]).length} cloud-screened Sentinel observations`)}
+    else if(['fragmentation','carbon_loss'].includes(def.id)){await loadEvidence(true)}
+    else if(def.id==='erosion'){const slope=state.profile?.terrain?.slope_deg;toast(slope!=null?`Terrain context: slope ${fmt(slope,1)}°`:'Erosion context opened; slope raster is an optional Earth Engine enhancement.')}
+    else toast(`${def.label} opened in analysis panel`);
+  }
+  else{showTab('analysis');toast(`${def.label} opened in its investigation/profile workflow.`)}
 }catch(e){if(checkbox)checkbox.checked=false;clearDynamicLayer(def.id);toast(`${def.label}: ${String(e.message).slice(0,170)}`)}}
 
 async function quickLayer(kind){$$('.map-pill').forEach(x=>x.classList.toggle('active',x.dataset.quick===kind));try{

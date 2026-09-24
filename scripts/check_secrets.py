@@ -5,16 +5,18 @@ import re, sys
 ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache"}
 TEXT_EXTS = {".py",".md",".yml",".yaml",".json",".toml",".ini",".cfg",".txt",".js",".ts",".tsx",".html",".css",".env"}
+SELF = Path(__file__).resolve()
 
+# Match credential-shaped values, not documentation placeholders.
 patterns = [
-    ("non-empty FIRMS_MAP_KEY assignment", re.compile(r"(?im)^\s*FIRMS_MAP_KEY\s*=\s*[^\s#]+\s*$")),
+    ("FIRMS MAP key", re.compile(r"(?im)^\s*FIRMS_MAP_KEY\s*=\s*[0-9a-f]{32,64}\s*$")),
     ("private key block", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
     ("Google service-account private_key field", re.compile(r'"private_key"\s*:\s*"-----BEGIN PRIVATE KEY-----')),
 ]
 
 violations=[]
 for path in ROOT.rglob("*"):
-    if not path.is_file() or any(p in SKIP_DIRS for p in path.parts):
+    if not path.is_file() or path.resolve() == SELF or any(p in SKIP_DIRS for p in path.parts):
         continue
     if path.name == ".env.example":
         continue

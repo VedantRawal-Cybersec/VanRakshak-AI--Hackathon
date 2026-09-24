@@ -41,3 +41,20 @@ def test_ready_endpoint():
     r=client.get('/api/ready')
     assert r.status_code==200
     assert r.json()['ok'] is True
+
+
+def test_demo_scenarios_are_real_preflight_inputs():
+    r=client.get('/api/demo-scenarios')
+    assert r.status_code==200
+    data=r.json()
+    assert data['count']==5
+    primaries=[x for x in data['scenarios'] if x['priority']=='PRIMARY']
+    assert len(primaries)>=3
+    assert all(x['sentinel2']['before']['id'] and x['sentinel2']['after']['id'] for x in primaries)
+    assert all(x['sentinel1']['matched_pair'] is True for x in primaries)
+
+
+def test_cache_status_reports_resilient_backend():
+    r=client.get('/api/cache/status')
+    assert r.status_code==200
+    assert r.json()['persistent_backend']=='redis_with_memory_fallback'

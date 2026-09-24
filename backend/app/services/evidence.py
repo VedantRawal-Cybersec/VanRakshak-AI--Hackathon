@@ -184,7 +184,12 @@ def partial_risk(change: dict | None, sources: dict, climate: dict | None = None
 
     fire=sources.get("fire") or {}
     if fire.get("ok"):
-        add("Fire activity", min(1,len(fire.get("data") or [])/10), 14, "NASA FIRMS")
+        fire_source=((fire.get("provenance") or {}).get("source") or "")
+        rows=len(fire.get("data") or [])
+        if "EONET" in fire_source:
+            add("Wildfire event context", min(.25, rows/20), 6, "NASA EONET context; not a thermal hotspot measurement")
+        else:
+            add("Fire activity", min(1,rows/10), 14, "NASA FIRMS multi-sensor thermal detections")
     hp=sources.get("human_pressure") or {}
     if hp.get("ok"):
         d=hp.get("data") or {}; count=d.get("count",len(d.get("elements") or [])) if isinstance(d,dict) else 0

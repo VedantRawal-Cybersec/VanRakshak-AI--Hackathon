@@ -146,10 +146,13 @@ tests.append(("15 Smart Warning System",lambda: (
     (lambda b: f"risk={(b.get('risk') or {}).get('score')}" if (b.get("risk") or {}).get("score") is not None else (_ for _ in ()).throw(AssertionError(b)))
     (cached_get(live_path,300))
 )))
-tests.append(("16 Threat Prediction",lambda: (
-    (lambda b: f"projected={len(b.get('projected_values') or [])}" if len(b.get("projected_values") or [])>0 else (_ for _ in ()).throw(AssertionError(b)))
-    (cached_get(predict_path,240))
-)))
+def threat_prediction_test():
+    b=cached_get(predict_path,240)
+    projected=(b.get("projection") or {}).get("projected_values") or b.get("projected_values") or []
+    if not projected:
+        raise AssertionError(b)
+    return f"projected={len(projected)}"
+tests.append(("16 Threat Prediction",threat_prediction_test))
 tests.append(("17 Threat Cascade Engine",lambda: (
     (lambda b: f"nodes={len((b.get('cascade') or {}).get('chain') or [])}" if "cascade" in b else (_ for _ in ()).throw(AssertionError(b)))
     (cached_get(live_path,300))

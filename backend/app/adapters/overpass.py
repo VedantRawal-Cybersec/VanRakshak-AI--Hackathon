@@ -1,13 +1,35 @@
 from __future__ import annotations
-from app.adapters.base import BaseAdapter
+from app.adapters.base import BaseAdapter, AdapterError
 from app.config import settings
 
 class OverpassAdapter(BaseAdapter):
     name = "overpass"
     source_url = "https://www.openstreetmap.org/"
 
+    @staticmethod
+    def endpoints() -> list[str]:
+        candidates = [
+            settings.overpass_url,
+            "https://overpass.private.coffee/api/interpreter",
+            "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        ]
+        seen=set()
+        out=[]
+        for url in candidates:
+            value=(url or "").strip().rstrip("/")
+            if value and value not in seen:
+                seen.add(value)
+                out.append(value)
+        return out
+
     async def _query(self, q: str):
-        return await self.post_json(settings.overpass_url, data={"data": q})
+        errors=[]
+        for endpoint in self.endpoints():
+            try:
+                return await self.post_json(endpoint, data={"data": q})
+            except Exception as exc:
+                errors.append(f"{endpoint}: {exc}")
+        raise AdapterError("all Overpass endpoints unavailable: " + " | ".join(errors))
 
     async def pressure(self, lat: float, lon: float, radius_m: int = 5000):
         q = f'''[out:json][timeout:20];(

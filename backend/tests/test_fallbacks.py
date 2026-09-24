@@ -72,3 +72,12 @@ def test_provider_strategy_keeps_37_feature_stack_resilient():
     assert s["fire"]["credential_free_fallback"] is True
     assert s["protected_areas"]["credential_free_fallback"] is True
     assert s["satellite"]["credential_free"] is True
+
+
+def test_overpass_uses_multiple_global_fallback_instances():
+    from app.adapters.overpass import OverpassAdapter
+    endpoints=OverpassAdapter.endpoints()
+    assert len(endpoints) >= 3
+    assert endpoints[0]
+    assert "https://overpass.private.coffee/api/interpreter" in endpoints
+    assert "https://maps.mail.ru/osm/tools/overpass/api/interpreter" in endpoints

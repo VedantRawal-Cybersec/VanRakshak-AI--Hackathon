@@ -5,7 +5,7 @@ const state={
   lat:12.3375,lon:75.8069,place:'Kodagu Forest Region',regionSub:'Karnataka, India',
   investigation:null,profile:null,evidence:null,layers:[],active:new Map(),sourceHealth:null,
   inlineBefore:null,inlineAfter:null,panelBefore:null,panelAfter:null,modalBefore:null,modalAfter:null,
-  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null
+  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null,demoScenarios:[]
 };
 
 const baseStyle={
@@ -185,6 +185,45 @@ async function loadSourceHealth(showToast=true){try{const [h,sh]=await Promise.a
 function sourceIcon(name){name=name.toLowerCase();if(name.includes('sentinel')||name.includes('copernicus')||name.includes('earth search')||name.includes('gibs'))return '🛰';if(name.includes('firms')||name.includes('eonet'))return '🔥';if(name.includes('meteo'))return '☁';if(name.includes('protected'))return '🛡';if(name.includes('photon')||name.includes('nominatim'))return '⌖';if(name.includes('soil'))return '🌱';if(name.includes('earth engine'))return '🌍';return '●'}
 
 function drawSearchBoundary(hit){const g=hit?.geojson;if(!g)return;for(const id of ['search-boundary-fill','search-boundary-line'])if(map.getLayer(id))map.removeLayer(id);if(map.getSource('search-boundary'))map.removeSource('search-boundary');map.addSource('search-boundary',{type:'geojson',data:{type:'Feature',properties:{},geometry:g}});map.addLayer({id:'search-boundary-fill',type:'fill',source:'search-boundary',paint:{'fill-color':'#20d67b','fill-opacity':.06}},map.getLayer('labels')?'labels':undefined);map.addLayer({id:'search-boundary-line',type:'line',source:'search-boundary',paint:{'line-color':'#e8fff4','line-width':1.6,'line-opacity':.9}})}
+async function loadDemoScenarioManifest(){
+  try{
+    const d=await api('/api/demo-scenarios');
+    state.demoScenarios=d.scenarios||[];
+    const select=$('demoScenarioSelect');
+    if(!select)return;
+    select.innerHTML=state.demoScenarios.map(s=>`<option value="${esc(s.id)}">${esc(s.priority==='PRIMARY'?'★ ':'')}${esc(s.name)}</option>`).join('');
+    const primary=state.demoScenarios.find(s=>s.priority==='PRIMARY')||state.demoScenarios[0];
+    if(primary){select.value=primary.id;renderDemoScenarioMeta(primary)}
+  }catch(e){
+    const select=$('demoScenarioSelect');
+    if(select)select.innerHTML='<option value="">Verified scenarios unavailable</option>';
+    setText('demoScenarioMeta','Scenario manifest unavailable; manual investigation remains available.');
+  }
+}
+function renderDemoScenarioMeta(s){
+  if(!s)return;
+  const b=s.sentinel2?.before,a=s.sentinel2?.after,sar=s.sentinel1?.matched_pair;
+  setText('demoScenarioMeta',`${b?.date||'—'} → ${a?.date||'—'} • Sentinel-2 verified${sar?' • matched SAR pair':''}`);
+}
+async function applyDemoScenario(){
+  const id=$('demoScenarioSelect')?.value;
+  const s=state.demoScenarios.find(x=>x.id===id);
+  if(!s)return toast('No verified demo scenario selected');
+  const before=s.sentinel2?.before?.date,after=s.sentinel2?.after?.date;
+  state.place=s.name;state.regionSub=`${s.state||''}, India`;
+  if(before){$('beforeDate').value=before;$('modalBeforeDate').value=before}
+  if(after){$('afterDate').value=after;$('modalAfterDate').value=after}
+  if($('timeStart')&&before)$('timeStart').value=before;
+  if($('timeEnd')&&after)$('timeEnd').value=after;
+  renderDemoScenarioMeta(s);
+  map.flyTo({center:[Number(s.lon),Number(s.lat)],zoom:Number(s.zoom||10),essential:true});
+  toast(`Loading verified demo inputs for ${s.name}…`,5000);
+  await investigate(Number(s.lat),Number(s.lon),s.name);
+  await loadInlineCompare(false);
+  showTab('overview');
+  toast(`${s.name}: verified scene dates loaded. Analysis remains source-computed.`,5000);
+}
+
 async function doSearch(){const q=$('searchBox').value.trim();if(!q)return;try{const g=await api('/api/geocode?q='+encodeURIComponent(q));if(g.ok&&g.data?.length){const hit=g.data[0];state.place=hit.display_name?.split(',').slice(0,2).join(',')||q;drawSearchBoundary(hit);map.flyTo({center:[Number(hit.lon),Number(hit.lat)],zoom:9.5,essential:true});await investigate(Number(hit.lat),Number(hit.lon),state.place);toast('Location resolved and investigation started');return}}catch{}try{const parsed=await api('/api/query?q='+encodeURIComponent(q));toast('AI Earth query parsed: '+JSON.stringify(parsed.filters||parsed));showTab('analysis');await loadEvidence(false)}catch(e){toast('Search: '+String(e.message).slice(0,160))}}
 
 async function generateReport(){if(!ensureLocation())return;try{toast('Generating source-backed PDF report…',5000);const url=`/api/report/investigation?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent($('beforeDate').value)}&after_date=${encodeURIComponent($('afterDate').value)}`;const r=await fetch(url);if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);const blob=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vanrakshak-investigation-report.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1200);toast('Investigation report generated')}catch(e){toast('Report: '+String(e.message).slice(0,170))}}
@@ -211,6 +250,7 @@ $('loadInlineCompare').onclick=()=>loadInlineCompare(true);$('runChangeAnalysis'
 $('reportBtn').onclick=generateReport;$('generateReportNews').onclick=generateReport;$('reportsTop').onclick=generateReport;$('viewOnMapBtn').onclick=fitSelected;$('patrolBtn').onclick=openPatrol;
 $('refreshSources').onclick=()=>loadSourceHealth(true);$('healthBtn').onclick=()=>loadSourceHealth(true);$('liveDataTop').onclick=()=>{showTab('overview');$('liveDataSection').scrollIntoView({behavior:'smooth',block:'center'});loadSourceHealth(true)};$('analyticsTop').onclick=()=>{$('analyticsSection').scrollIntoView({behavior:'smooth',block:'center'});toast('Source-backed regional analytics')};
 $('aboutTop').onclick=()=>$('aboutModal').classList.remove('hidden');$('closeAbout').onclick=()=>$('aboutModal').classList.add('hidden');
+$('demoScenarioSelect').onchange=()=>renderDemoScenarioMeta(state.demoScenarios.find(x=>x.id===$('demoScenarioSelect').value));$('loadDemoScenario').onclick=applyDemoScenario;
 $('aiAssistantBtn').onclick=()=>{$('searchBox').focus();$('searchBox').placeholder='Ask: show fire risk near Bandipur, forest change in Kodagu…';toast('Type a forest question or place in the search bar')};
 $('openLayerDrawerEnv').onclick=openLayerDrawer;
 $('closeIntelligence').onclick=()=>$('intelligenceModal').classList.add('hidden');$('runPrediction').onclick=()=>runPrediction(false);$('runLocationPrediction').onclick=()=>runPrediction(true);$('runWhatIf').onclick=runWhatIf;
@@ -226,4 +266,4 @@ $('beforeDate').onchange=()=>{$('modalBeforeDate').value=$('beforeDate').value};
 window.addEventListener('resize',()=>{state.trendChart?.resize();[state.inlineBefore,state.inlineAfter,state.panelBefore,state.panelAfter,state.modalBefore,state.modalAfter,state.timeMap].forEach(m=>{try{m?.resize()}catch{}})});
 
 // Initial boot: exact dashboard layout opens on Kodagu with real source calls.
-(async function boot(){await loadLayers();await loadSourceHealth(false);map.once('load',()=>{map.flyTo({center:[state.lon,state.lat],zoom:8.2,duration:1400});investigate(state.lat,state.lon,state.place)});if(map.loaded()){map.flyTo({center:[state.lon,state.lat],zoom:8.2,duration:1400});investigate(state.lat,state.lon,state.place)}})();
+(async function boot(){await loadDemoScenarioManifest();await loadLayers();await loadSourceHealth(false);map.once('load',()=>{map.flyTo({center:[state.lon,state.lat],zoom:8.2,duration:1400});investigate(state.lat,state.lon,state.place)});if(map.loaded()){map.flyTo({center:[state.lon,state.lat],zoom:8.2,duration:1400});investigate(state.lat,state.lon,state.place)}})();

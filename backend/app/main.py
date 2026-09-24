@@ -1152,7 +1152,7 @@ async def evidence_chain_ep(
         sources["sar_change"]={
             "ok":True,
             "data":sar_change,
-            "provenance":prov("Sentinel-1 GRD / Earth Search","DERIVED_METRIC",earth.source_url,observed_at=(sar_change.get("after") or {}).get("datetime"),notes=sar_change.get("warning")).model_dump(),
+            "provenance":prov("Sentinel-1 GRD / Earth Search","DYNAMIC_RECENT",earth.source_url,observed_at=(sar_change.get("after") or {}).get("datetime"),notes=sar_change.get("warning")).model_dump(),
             "error":None,
         }
     chain=build_chain(sources,change,climate)
@@ -1402,19 +1402,37 @@ async def vegetation_series_ep(
     except Exception:
         raise HTTPException(422,"start/end must use YYYY-MM-DD")
     if edate <= sdate: raise HTTPException(422,"end must be after start")
-    data=await earth.search(lat,lon,sdate,edate,cloud_lt=cloud_lt,limit=100)
-    feats=sorted(data.get("features") or [],key=lambda f:(f.get("properties") or {}).get("datetime") or "")
-    if not feats: raise HTTPException(404,"No suitable Sentinel-2 scenes found")
-    if len(feats)>max_observations:
-        import numpy as np
-        idx=np.linspace(0,len(feats)-1,max_observations).round().astype(int)
-        feats=[feats[int(i)] for i in sorted(set(idx.tolist()))]
-    rows=[]; errors=[]
-    for f in feats:
-        try: rows.append(await asyncio.to_thread(scene_summary,f,lat,lon,radius_km,.45))
-        except Exception as exc: errors.append({"scene":f.get("id"),"error":str(exc)})
-    if len(rows)<2: raise HTTPException(503,"Too few Sentinel-2 scenes could be read for a time series")
-    return {"source":"Sentinel-2 L2A / Earth Search","observations":rows,"errors":errors,"label":"DERIVED_METRIC"}
+
+    key=(
+        f"vegetation-series:{round(lat,5)}:{round(lon,5)}:{start}:{end}:"
+        f"{max_observations}:{round(cloud_lt,1)}:{round(radius_km,2)}"
+    )
+
+    async def produce():
+        data=await earth.search(lat,lon,sdate,edate,cloud_lt=cloud_lt,limit=100)
+        feats=sorted(data.get("features") or [],key=lambda f:(f.get("properties") or {}).get("datetime") or "")
+        if not feats: raise HTTPException(404,"No suitable Sentinel-2 scenes found")
+        if len(feats)>max_observations:
+            import numpy as np
+            idx=np.linspace(0,len(feats)-1,max_observations).round().astype(int)
+            feats=[feats[int(i)] for i in sorted(set(idx.tolist()))]
+
+        semaphore=asyncio.Semaphore(4)
+        async def read_scene(feature):
+            async with semaphore:
+                try:
+                    row=await asyncio.to_thread(scene_summary,feature,lat,lon,radius_km,.45)
+                    return True,row
+                except Exception as exc:
+                    return False,{"scene":feature.get("id"),"error":str(exc)}
+
+        results=await asyncio.gather(*(read_scene(f) for f in feats))
+        rows=[value for ok,value in results if ok]
+        errors=[value for ok,value in results if not ok]
+        if len(rows)<2: raise HTTPException(503,"Too few Sentinel-2 scenes could be read for a time series")
+        return {"source":"Sentinel-2 L2A / Earth Search","observations":rows,"errors":errors,"label":"DERIVED_METRIC"}
+
+    return await cached_async(key,600,produce)
 
 
 @app.get("/api/analysis/recovery-location")

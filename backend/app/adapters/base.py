@@ -59,19 +59,48 @@ class BaseAdapter:
     async def _request(self, method: str, url: str, **kwargs):
         if not settings.allow_network:
             raise AdapterError("Network access disabled by ALLOW_NETWORK=false")
-        timeout = httpx.Timeout(settings.request_timeout_s)
-        try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers={"User-Agent":"VanRakshakAI/2.0"}) as client:
-                r = await client.request(method, url, **kwargs)
-                r.raise_for_status()
-                return r
-        except httpx.TimeoutException as exc:
-            raise AdapterError(f"{self.name or 'provider'} timed out") from exc
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code if exc.response else "unknown"
-            raise AdapterError(f"{self.name or 'provider'} returned HTTP {status}") from exc
-        except httpx.RequestError as exc:
-            raise AdapterError(f"{self.name or 'provider'} is unreachable: {exc}") from exc
+
+        timeout=httpx.Timeout(settings.request_timeout_s)
+        transient_statuses={408,429,500,502,503,504}
+        attempts=3
+        last_exc: Exception | None=None
+        last_message=f"{self.name or 'provider'} request failed"
+
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={"User-Agent":"VanRakshakAI/2.0"},
+        ) as client:
+            for attempt in range(attempts):
+                retry_delay=0.5*(2**attempt)
+                try:
+                    r=await client.request(method,url,**kwargs)
+                    if r.status_code in transient_statuses and attempt+1<attempts:
+                        raw=r.headers.get("Retry-After")
+                        if raw:
+                            try: retry_delay=float(raw)
+                            except (TypeError,ValueError): pass
+                        await asyncio.sleep(min(max(retry_delay,.25),5.0))
+                        continue
+                    r.raise_for_status()
+                    return r
+                except httpx.TimeoutException as exc:
+                    last_exc=exc
+                    last_message=f"{self.name or 'provider'} timed out"
+                except httpx.HTTPStatusError as exc:
+                    last_exc=exc
+                    status=exc.response.status_code if exc.response else "unknown"
+                    last_message=f"{self.name or 'provider'} returned HTTP {status}"
+                    if status not in transient_statuses:
+                        raise AdapterError(last_message) from exc
+                except httpx.RequestError as exc:
+                    last_exc=exc
+                    last_message=f"{self.name or 'provider'} is unreachable: {exc}"
+
+                if attempt+1<attempts:
+                    await asyncio.sleep(min(retry_delay,5.0))
+
+        raise AdapterError(last_message) from last_exc
 
     async def get_json(self, url: str, **kwargs):
         key=_cache_key("GET_JSON",url,kwargs)

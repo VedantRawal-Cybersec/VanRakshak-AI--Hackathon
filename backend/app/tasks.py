@@ -4,7 +4,7 @@ import hashlib
 from datetime import datetime, timezone
 from celery import Celery
 from app.config import settings
-from app.adapters import CopernicusAdapter, OpenMeteoAdapter, FIRMSAdapter, EONETAdapter
+from app.adapters import CopernicusAdapter, OpenMeteoAdapter, METNorwayAdapter, FIRMSAdapter, EONETAdapter
 from app.services.fallbacks import fire_rows as fallback_fire_rows
 
 celery = Celery("vanrakshak", broker=settings.redis_url, backend=settings.redis_url)
@@ -16,6 +16,22 @@ celery.conf.beat_schedule = {
 
 def _run(coro):
     return asyncio.run(coro)
+
+async def _weather_with_fallback(lat: float, lon: float):
+    errors=[]
+    for adapter,label in (
+        (OpenMeteoAdapter(),"Open-Meteo"),
+        (METNorwayAdapter(),"MET Norway Locationforecast"),
+    ):
+        try:
+            data=await adapter.current(lat,lon)
+            if isinstance(data,dict) and data.get("current") is not None:
+                return data,label,errors
+            errors.append(f"{label}: response missing current weather")
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+    raise RuntimeError("All weather providers unavailable: "+"; ".join(errors))
+
 
 def _persist_health(rows: dict[str, object]):
     try:
@@ -65,11 +81,13 @@ def source_health():
     lat, lon = settings.monitor_lat, settings.monitor_lon
     out: dict[str, object] = {}
     async def checks():
-        c = CopernicusAdapter(); w = OpenMeteoAdapter(); f = FIRMSAdapter()
+        c = CopernicusAdapter(); f = FIRMSAdapter()
         try: out["copernicus"] = bool((await c.latest_sentinel2(lat, lon, 14, 80)).get("features") is not None)
         except Exception as e: out["copernicus"] = str(e)
-        try: out["weather"] = bool((await w.current(lat, lon)).get("current") is not None)
-        except Exception as e: out["weather"] = str(e)
+        try:
+            _,_,_=await _weather_with_fallback(lat,lon)
+            out["weather"]=True
+        except Exception as e: out["weather"]=str(e)
         if settings.firms_map_key:
             try: out["firms"] = isinstance(await f.fires(lat, lon), list)
             except Exception as e: out["firms"] = str(e)
@@ -85,8 +103,12 @@ def fire_context():
     result: dict = {}
     async def fetch():
         info=await fallback_fire_rows(FIRMSAdapter(),EONETAdapter(),lat,lon,1)
-        weather=await OpenMeteoAdapter().current(lat,lon)
-        result.update({"fire":info,"weather":weather})
+        result["fire"]=info
+        try:
+            weather,weather_source,weather_trace=await _weather_with_fallback(lat,lon)
+            result.update({"weather":weather,"weather_source":weather_source,"weather_trace":weather_trace})
+        except Exception as exc:
+            result.update({"weather":None,"weather_source":None,"weather_error":str(exc)})
     try:
         _run(fetch())
     except Exception as exc:
@@ -102,4 +124,7 @@ def fire_context():
         "degraded":bool(result.get("fire",{}).get("degraded")),
         "observations":len(rows),
         "inserted":inserted,
+        "weather_ok":result.get("weather") is not None,
+        "weather_source":result.get("weather_source"),
+        "weather_error":result.get("weather_error"),
     }

@@ -15,5 +15,9 @@ COPY backend/app /app/app
 COPY web /web
 COPY config /config
 
+RUN useradd --system --create-home --home-dir /home/vanrakshak --shell /usr/sbin/nologin vanrakshak \
+    && chown -R vanrakshak:vanrakshak /app /web /config
+USER vanrakshak
+
 EXPOSE 8000
 CMD ["sh","-c","uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

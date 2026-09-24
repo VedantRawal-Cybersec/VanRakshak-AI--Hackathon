@@ -97,8 +97,8 @@ def test_dashboard_filters_drive_live_layer_requests():
     assert "satelliteModeQuick" in js
     assert "days:'90'" in js
     assert "maxzoom" in js
-    assert "$('[data-layer]').forEach" in js
-    assert "$('[data-layer]').forEach" not in js
+    assert ";$$('[data-layer]').forEach" in js
+    assert ";$('[data-layer]').forEach" not in js
     assert "mode=true_color&cloud_lt=60" not in js
     assert "mode=ndvi&cloud_lt=60" not in js
 

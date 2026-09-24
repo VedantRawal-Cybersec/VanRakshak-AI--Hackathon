@@ -40,5 +40,5 @@ async def anomaly(open_meteo, lat: float, lon: float, window_days: int = 30, bas
         "window":{"start":recent_start.isoformat(),"end":recent_end.isoformat(),"days":window_days},
         "temperature_mean_c":round(float(recent_t),2),"temperature_baseline_c":round(t_base,2),"temperature_anomaly_c":round(float(recent_t-t_base),2),
         "rainfall_sum_mm":round(float(recent_r),2),"rainfall_baseline_mm":round(r_base,2),"rainfall_deficit_pct":round(float(rain_def),1),
-        "baseline_years":len(hist_t),"label":"DERIVED_METRIC","source":"Open-Meteo Historical/Reanalysis",
+        "baseline_years":len(hist_t),"label":"DERIVED_METRIC","source":getattr(open_meteo,"climate_source","Open-Meteo Historical/Reanalysis"),
     }

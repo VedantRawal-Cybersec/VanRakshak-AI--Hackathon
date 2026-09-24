@@ -1,0 +1,53 @@
+name: Browser E2E
+
+on:
+  push:
+    paths:
+      - 'web/**'
+      - 'backend/app/**'
+      - 'tests/e2e/**'
+      - 'playwright.config.js'
+      - 'package.json'
+      - '.github/workflows/browser-e2e.yml'
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: backend
+      ALLOW_NETWORK: 'true'
+      REQUEST_TIMEOUT_S: '30'
+      AUTO_INIT_DB: 'true'
+      DATABASE_URL: 'sqlite:///./vanrakshak-e2e.db'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: pip install -r backend/requirements.txt
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - name: Start VanRakshak
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/vanrakshak.log 2>&1 &
+          echo $! > /tmp/vanrakshak.pid
+          for i in {1..60}; do
+            curl -fsS http://127.0.0.1:8000/api/health && break
+            sleep 2
+          done
+      - run: npm run e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-artifacts
+          path: |
+            playwright-report
+            test-results
+            /tmp/vanrakshak.log
+          if-no-files-found: ignore

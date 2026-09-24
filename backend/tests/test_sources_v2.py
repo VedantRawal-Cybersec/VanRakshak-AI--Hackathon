@@ -77,3 +77,21 @@ def test_nasa_power_normalizes_daily_climate_schema(monkeypatch):
     assert out["daily"]["temperature_2m_mean"]==[24.1,None]
     assert out["daily"]["precipitation_sum"]==[5.2,0.0]
     assert out["source"]=="NASA POWER"
+
+
+def test_planetary_computer_tilejson_fallback(monkeypatch):
+    import asyncio
+    from app.adapters.planetary_computer import PlanetaryComputerAdapter
+    item={
+        "id":"PC-S2",
+        "properties":{"datetime":"2026-09-01T10:00:00Z","eo:cloud_cover":2.5},
+        "assets":{"tilejson":{"href":"https://planetarycomputer.microsoft.com/api/data/v1/item/tilejson.json?item=PC-S2"}},
+    }
+    async def fake_get_json(self,url,**kwargs):
+        return {"tiles":["https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/{z}/{x}/{y}.png"]}
+    monkeypatch.setattr(PlanetaryComputerAdapter,"get_json",fake_get_json)
+    out=asyncio.run(PlanetaryComputerAdapter().true_color_tile(item))
+    assert out["fallback_used"] is True
+    assert out["item_id"]=="PC-S2"
+    assert "{z}" in out["tile_url"]
+    assert out["resolution_m"]==10

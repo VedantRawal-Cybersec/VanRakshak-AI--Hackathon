@@ -14,6 +14,7 @@ LAYER_GROUPS = [
         {"id":"forest_loss","label":"Integrated Forest Disturbance Alerts","source":"Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"gfw_integrated_alerts"},
         {"id":"glad_s2","label":"GLAD Sentinel-2 Alerts","source":"Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"umd_glad_sentinel2_alerts"},
         {"id":"radd_radar","label":"RADD Sentinel-1 Radar Alerts","source":"Wageningen / Global Forest Watch","freshness":"DYNAMIC_RECENT","render":"gfw","dataset":"wur_radd_alerts"},
+        {"id":"nasa_opera_dist","label":"NASA OPERA HLS Disturbance Alert","source":"NASA OPERA / GIBS","freshness":"DYNAMIC_RECENT","resolution_m":30,"render":"gibs","gibs_layer":"opera_dist_alert_hls"},
         {"id":"hansen_loss","label":"Historical Tree Cover Loss","source":"Hansen / GFW public tiles","freshness":"HISTORICAL","resolution_m":30,"render":"gfw","dataset":"umd_tree_cover_loss"},
         {"id":"tree_cover_2000","label":"Tree Cover Density 2000","source":"GFW","freshness":"REFERENCE","render":"gfw","dataset":"umd_tree_cover_density_2000"},
         {"id":"forest_gain","label":"Tree Cover Gain","source":"Global Forest Watch","freshness":"HISTORICAL","render":"gfw","dataset":"umd_tree_cover_gain"},
@@ -50,8 +51,10 @@ LAYER_GROUPS = [
     ]},
     {"id":"water","label":"Water & Drought","icon":"🌧️","layers":[
         {"id":"soil_moisture","label":"Soil Moisture","source":"Open-Meteo model","freshness":"FORECAST","render":"point_data"},
+        {"id":"nasa_smap_soil_moisture","label":"NASA SMAP Soil Moisture","source":"NASA SMAP / GIBS","freshness":"DYNAMIC_RECENT","resolution_m":36000,"render":"gibs","gibs_layer":"smap_soil_moisture"},
         {"id":"drought","label":"Drought / Water Stress","source":"VanRakshak derived","freshness":"AI_ESTIMATE","render":"analysis"},
         {"id":"surface_water","label":"Surface Water Occurrence","source":"JRC / Earth Engine","freshness":"HISTORICAL","resolution_m":30,"render":"earth_engine","ee_layer":"jrc_water_occurrence"},
+        {"id":"nasa_opera_water","label":"NASA OPERA Dynamic Surface Water","source":"NASA OPERA HLS / GIBS","freshness":"DYNAMIC_RECENT","resolution_m":30,"render":"gibs","gibs_layer":"opera_surface_water_hls"},
         {"id":"evapotranspiration","label":"Evapotranspiration","source":"Open-Meteo","freshness":"FORECAST","render":"point_data"},
         {"id":"precipitation","label":"Precipitation","source":"Open-Meteo / CHIRPS","freshness":"DYNAMIC_RECENT","render":"point_data"},
     ]},

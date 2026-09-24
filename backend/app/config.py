@@ -35,5 +35,7 @@ class Settings:
     bhuvan_wms_url: str = _env("BHUVAN_WMS_URL", "https://bhuvan-vec2.nrsc.gov.in/bhuvan/wms")
     auto_init_db: bool = _env("AUTO_INIT_DB", "false").lower() in {"1", "true", "yes", "on"}
     allow_network: bool = _env("ALLOW_NETWORK", "true").lower() in {"1", "true", "yes", "on"}
+    monitor_lat: float = float(_env("MONITOR_LAT", "12.3375"))
+    monitor_lon: float = float(_env("MONITOR_LON", "75.8069"))
 
 settings = Settings()

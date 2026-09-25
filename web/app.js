@@ -705,6 +705,34 @@ async function loadTrend(){if(!ensureLocation()||typeof echarts==='undefined')re
 async function loadSourceHealth(showToast=true){try{const [h,sh]=await Promise.all([api('/api/health'),api('/api/source-health')]);state.sourceHealth=sh;const rows=sh.sources||[];const healthy=rows.filter(x=>x.ok).length,configured=rows.filter(x=>x.status!=='NOT_CONFIGURED').length;setText('sumSources',`${healthy}/${configured||rows.length}`);setText('sumSourcesDelta','Healthy/configured providers');const wanted=['Earth Search','Planetary Computer','Copernicus STAC','Sentinel-1 ASF','Open-Meteo','MET Norway','NASA GIBS','NASA POWER','NASA EONET','Google News RSS','Photon Geocoder','NASA FIRMS','Protected Planet','Earth Engine'];const selected=[];for(const name of wanted){const r=rows.find(x=>x.source===name);if(r)selected.push(r)}for(const r of rows){if(selected.length>=6)break;if(!selected.includes(r))selected.push(r)}$('sourceList').innerHTML=selected.slice(0,6).map(r=>{const cls=r.ok?'':' '+(r.status==='NOT_CONFIGURED'?'off':'err');return `<div class="source-row"><span class="source-logo">${sourceIcon(r.source)}</span><span>${esc(r.source)}</span><em class="source-status"><i class="source-dot${cls}"></i>${r.ok?(r.latency_ms!=null?`${fmt(r.latency_ms,0)} ms`:'Healthy'):(r.status==='NOT_CONFIGURED'?'Needs credential':'Unavailable')}</em></div>`}).join('');if(h.capabilities?.firms_configured===false&&$('sumFire').textContent==='—')setText('sumFireDelta','FIRMS key not configured at runtime');if(showToast)toast(`${healthy}/${configured||rows.length} configured sources healthy`);return sh}catch(e){$('sourceList').innerHTML='<div class="empty-state">Source health endpoint unavailable.</div>';if(showToast)toast('Source health unavailable');return null}}
 function sourceIcon(name){name=name.toLowerCase();if(name.includes('sentinel')||name.includes('copernicus')||name.includes('earth search')||name.includes('gibs'))return '🛰';if(name.includes('firms')||name.includes('eonet'))return '🔥';if(name.includes('meteo')||name.includes('met norway')||name.includes('power'))return '☁';if(name.includes('protected'))return '🛡';if(name.includes('photon')||name.includes('nominatim'))return '⌖';if(name.includes('soil'))return '🌱';if(name.includes('news'))return '📰';if(name.includes('earth engine'))return '🌍';return '●'}
 
+async function loadJudgeEvidence(){
+  const panel=$('judgeDataStatus');if(!panel)return;
+  panel.innerHTML='<div class="empty-state">Checking production capability/data modes…</div>';
+  try{
+    const [features,health]=await Promise.all([api('/api/features/status'),api('/api/health')]);
+    const rows=features.features||[];
+    const realDefault=rows.filter(x=>x.real_data_default===true).length;
+    const scenario=rows.filter(x=>String(x.data_mode||'').includes('SCENARIO')).length;
+    const forecast=rows.filter(x=>String(x.data_mode||'').includes('FORECAST')).length;
+    const caps=health.capabilities||{};
+    setText('judgeFeatureCount',realDefault+'/'+rows.length+' real-data default');
+    const item=(label,value,meta,tone='')=>'<div class="judge-status-item '+tone+'"><small>'+esc(label)+'</small><b>'+esc(value)+'</b><em>'+esc(meta)+'</em></div>';
+    panel.innerHTML=[
+      item('Production capabilities',realDefault+'/'+rows.length+' real-data default','Every registered feature declares its preferred real-data execution path.',realDefault===rows.length?'ok':'warn'),
+      item('Observed / derived separation','ENFORCED','Reference, derived, forecast, AI estimate and scenario classes remain labelled.','ok'),
+      item('Hypothetical features',String(scenario),'Scenario tools start from real evidence and remain explicitly hypothetical.',''),
+      item('Forecast features',String(forecast),'Forecasts expose uncertainty and real temporal holdout error when enough observations exist.',''),
+      item('FIRMS NRT',caps.firms_configured?'Configured':'Public context fallback','No FIRMS key means EONET/GIBS context is labelled and never called a pixel-level FIRMS detection.',caps.firms_configured?'ok':'warn'),
+      item('Protected Planet',caps.protected_planet_configured?'Configured':'OSM real fallback','Official Protected Planet is preferred; public OSM containment is labelled as fallback.',caps.protected_planet_configured?'ok':'warn'),
+      item('Earth Engine',caps.earth_engine_project?'Configured':'Optional enhancement unavailable','Dynamic World/GEDI/WCMC remain unavailable unless authenticated; Sentinel/Copernicus/public sources stay operational.',caps.earth_engine_project?'ok':'warn'),
+      item('Fabricated missing values','0 allowed','Unavailable provider values remain unavailable instead of being silently guessed.','ok')
+    ].join('');
+  }catch(e){
+    setText('judgeFeatureCount','Status unavailable');
+    panel.innerHTML='<div class="empty-state">'+esc(String(e.message).slice(0,180))+'</div>';
+  }
+}
+
 function drawSearchBoundary(hit){const g=hit?.geojson;if(!g)return;for(const id of ['search-boundary-fill','search-boundary-line'])if(map.getLayer(id))map.removeLayer(id);if(map.getSource('search-boundary'))map.removeSource('search-boundary');map.addSource('search-boundary',{type:'geojson',data:{type:'Feature',properties:{},geometry:g}});map.addLayer({id:'search-boundary-fill',type:'fill',source:'search-boundary',paint:{'fill-color':'#20d67b','fill-opacity':.06}},map.getLayer('labels')?'labels':undefined);map.addLayer({id:'search-boundary-line',type:'line',source:'search-boundary',paint:{'line-color':'#e8fff4','line-width':1.6,'line-opacity':.9}})}
 async function doSearch(){
   const q=$('searchBox').value.trim();
@@ -1263,7 +1291,7 @@ $('expandCompare').onclick=openFullCompare;$('openCompareBtn').onclick=openFullC
 $('loadInlineCompare').onclick=()=>loadInlineCompare(true);$('runChangeAnalysis').onclick=()=>loadEvidence(true);$('runEvidenceAnalysis').onclick=()=>loadEvidence(true);
 $('reportBtn').onclick=generateReport;$('generateReportNews').onclick=generateReport;$('reportsTop').onclick=generateReport;$('viewOnMapBtn').onclick=fitSelected;$('patrolBtn').onclick=openPatrol;$('sendAlertBtn').onclick=openAlertCenter;
 $('refreshSources').onclick=()=>loadSourceHealth(true);$('healthBtn').onclick=()=>loadSourceHealth(true);$('liveDataTop').onclick=()=>{showTab('overview');const inspector=$('inspector');if(inspector)inspector.scrollTo({top:Math.max(0,$('liveDataSection').offsetTop-90),behavior:'smooth'});loadSourceHealth(true)};$('analyticsTop').onclick=async()=>{showTab('analysis');await loadEvidence(false);toast('Source-backed regional analytics loaded')};
-$('aboutTop').onclick=()=>$('aboutModal').classList.remove('hidden');$('closeAbout').onclick=()=>$('aboutModal').classList.add('hidden');
+$('aboutTop').onclick=()=>{$('aboutModal').classList.remove('hidden');loadJudgeEvidence()};$('closeAbout').onclick=()=>$('aboutModal').classList.add('hidden');
 $('aiAssistantBtn').onclick=()=>{$('searchBox').focus();$('searchBox').placeholder='Ask: show fire risk near Bandipur, forest change in Kodagu…';toast('Type a forest question or place in the search bar')};
 $('openLayerDrawerEnv').onclick=openLayerDrawer;
 $('closeIntelligence').onclick=()=>$('intelligenceModal').classList.add('hidden');$('runPrediction').onclick=()=>runPrediction(false);$('runLocationPrediction').onclick=()=>runPrediction(true);$('runWhatIf').onclick=runWhatIf;

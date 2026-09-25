@@ -545,9 +545,23 @@ function renderAnalysisIntelligence(){
 
 function renderNews(n){if(!n||!n.ok){$('newsPanel').innerHTML=`<div class="empty-state">${esc(n?.error||'News context unavailable')}</div>`;return}const arts=n.data?.articles||[];$('newsPanel').innerHTML=arts.length?arts.slice(0,10).map(a=>`<article class="news-item"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title||a.url)}</a><small>${esc(a.domain||'')} • ${esc(a.seendate||'')}</small></article>`).join(''):'<div class="empty-state">No matching recent articles returned.</div>'}
 
+function selectedAreaAlertCount(d){
+  const c=d?.change||{},cl=d?.climate||{},src=d?.sources||{},carbon=d?.carbon||{};
+  let n=0;
+  if(Number(c.candidate_area_ha||0)>0)n++;
+  if(c.mean_ndvi_change!=null&&Number(c.mean_ndvi_change)<=-0.03)n++;
+  const fire=src.fire||{};if(fire.ok&&(fire.data||[]).length>0)n++;
+  if((cl.rainfall_deficit_pct!=null&&Number(cl.rainfall_deficit_pct)>=25)||(cl.temperature_anomaly_c!=null&&Number(cl.temperature_anomaly_c)>=1.5))n++;
+  const fc=c.fragmentation?.change||c.fragmentation_change||{};const fv=fc.patch_count_pct??fc.patch_density_pct??fc.edge_density_pct??null;if(fv!=null&&Math.abs(Number(fv))>=5)n++;
+  if(d?.protected_area===true)n++;
+  const hp=src.human_pressure?.data||{};const hc=hp.count??(Array.isArray(hp.elements)?hp.elements.length:null);if(hc!=null&&Number(hc)>0)n++;
+  if(Number(carbon.estimated_co2e_t||0)>0)n++;
+  return n;
+}
+
 async function loadEvidence(showToast=true){if(!ensureLocation())return null;const revision=state.locationRevision;const before=$('beforeDate').value,after=$('afterDate').value;try{if(showToast)toast('Running satellite change + evidence fusion…',5000);const q=`/api/analysis/evidence-chain?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent(before)}&after_date=${encodeURIComponent(after)}&radius_km=2`;const d=await api(q);if(revision!==state.locationRevision)return null;state.evidence=d;renderEvidence(d);if(showToast)toast('Evidence analysis completed');return d}catch(e){if(showToast)toast('Analysis: '+String(e.message).slice(0,170));renderEvidence({warning:{level:'UNKNOWN',score:null,coverage:0,factors:[]},evidence_chain:{items:[]}});return null}}
 
-function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',w.score!=null?String(Math.round(Number(w.score))):'—');
+function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',String(selectedAreaAlertCount(d)));
   const sev=$('severityBadge');sev.textContent=w.level||'UNKNOWN';sev.className=`severity ${(w.level||'unknown').toLowerCase()}`;
   clearDynamicLayer('candidate-loss');if(c.geojson){addGeoPolygon('candidate-loss',c.geojson,'#ff473d')}
   const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);renderEnvironment(state.investigation,state.profile);renderAnalysisIntelligence();

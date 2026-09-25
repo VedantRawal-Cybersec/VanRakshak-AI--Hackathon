@@ -1076,6 +1076,36 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
                 ee_values[lid] = await asyncio.to_thread(ee.sample, lid, lat, lon, 3650)
             except Exception as exc:
                 ee_values[lid] = {"error": str(exc)}
+
+    terrain_public=None
+    if (ee_values.get("srtm_slope") or {}).get("value") is None or (ee_values.get("srtm_aspect") or {}).get("value") is None:
+        try:
+            terrain_public=await weather.terrain(lat,lon)
+            sources["terrain_dem"]={
+                "ok":True,
+                "data":terrain_public,
+                "provenance":prov(
+                    terrain_public.get("source") or "Open-Meteo Elevation API / Copernicus DEM GLO-90",
+                    "REFERENCE",
+                    terrain_public.get("source_url"),
+                    notes=terrain_public.get("method"),
+                    resolution_m=terrain_public.get("dem_resolution_m") or 90,
+                ).model_dump(),
+                "error":None,
+            }
+        except Exception as exc:
+            sources["terrain_dem"]={
+                "ok":False,
+                "data":None,
+                "provenance":prov(
+                    "Open-Meteo Elevation API / Copernicus DEM GLO-90",
+                    "REFERENCE",
+                    "https://open-meteo.com/en/docs/elevation-api",
+                    notes="Terrain fallback unavailable; no slope/aspect value was fabricated.",
+                    resolution_m=90,
+                ).model_dump(),
+                "error":str(exc),
+            }
     return {
         "location": {
             "lat": lat, "lon": lon, "display_name": location.get("display_name") if isinstance(location, dict) else place,
@@ -1108,9 +1138,35 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
             "carbon_density_t_per_ha_reference": (ee_values.get("wcmc_carbon_density") or {}).get("value"),
         },
         "terrain": {
-            "elevation_m": (ee_values.get("srtm_elevation") or {}).get("value") if ee_values.get("srtm_elevation") else weather_full.get("elevation"),
-            "slope_deg": (ee_values.get("srtm_slope") or {}).get("value"),
-            "aspect_deg": (ee_values.get("srtm_aspect") or {}).get("value"),
+            "elevation_m": (
+                (ee_values.get("srtm_elevation") or {}).get("value")
+                if (ee_values.get("srtm_elevation") or {}).get("value") is not None
+                else (terrain_public or {}).get("elevation_m", weather_full.get("elevation"))
+            ),
+            "slope_deg": (
+                (ee_values.get("srtm_slope") or {}).get("value")
+                if (ee_values.get("srtm_slope") or {}).get("value") is not None
+                else (terrain_public or {}).get("slope_deg")
+            ),
+            "aspect_deg": (
+                (ee_values.get("srtm_aspect") or {}).get("value")
+                if (ee_values.get("srtm_aspect") or {}).get("value") is not None
+                else (terrain_public or {}).get("aspect_deg")
+            ),
+            "source": (
+                "SRTM terrain via Google Earth Engine"
+                if (ee_values.get("srtm_slope") or {}).get("value") is not None
+                else (terrain_public or {}).get("source")
+            ),
+            "method": (
+                "Google Earth Engine terrain products"
+                if (ee_values.get("srtm_slope") or {}).get("value") is not None
+                else (terrain_public or {}).get("method")
+            ),
+            "resolution_m": (
+                30 if (ee_values.get("srtm_slope") or {}).get("value") is not None
+                else (terrain_public or {}).get("dem_resolution_m")
+            ),
         },
         "conservation": (sources.get("protected_area") or {}).get("data") or ee_values.get("wdpa_protected"),
         "soil": sources.get("soil"),
@@ -1127,9 +1183,34 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
                 "reason": None if (ee_values.get("gedi_agbd") or {}).get("value") is not None else "Location-specific GEDI biomass is unavailable without the authenticated Earth Engine layer; carbon impact uses a clearly labelled scientific reference fallback when necessary.",
             },
             "slope": {
-                "available": (ee_values.get("srtm_slope") or {}).get("value") is not None,
-                "source": "SRTM terrain via Google Earth Engine",
-                "reason": None if (ee_values.get("srtm_slope") or {}).get("value") is not None else "Slope layer unavailable from the configured runtime; elevation remains source-backed.",
+                "available": (
+                    (ee_values.get("srtm_slope") or {}).get("value") is not None
+                    or (terrain_public or {}).get("slope_deg") is not None
+                ),
+                "source": (
+                    "SRTM terrain via Google Earth Engine"
+                    if (ee_values.get("srtm_slope") or {}).get("value") is not None
+                    else (terrain_public or {}).get("source")
+                ),
+                "reason": None if (
+                    (ee_values.get("srtm_slope") or {}).get("value") is not None
+                    or (terrain_public or {}).get("slope_deg") is not None
+                ) else "Real terrain providers are unavailable; no slope value is fabricated.",
+            },
+            "aspect": {
+                "available": (
+                    (ee_values.get("srtm_aspect") or {}).get("value") is not None
+                    or (terrain_public or {}).get("aspect_deg") is not None
+                ),
+                "source": (
+                    "SRTM terrain via Google Earth Engine"
+                    if (ee_values.get("srtm_aspect") or {}).get("value") is not None
+                    else (terrain_public or {}).get("source")
+                ),
+                "reason": None if (
+                    (ee_values.get("srtm_aspect") or {}).get("value") is not None
+                    or (terrain_public or {}).get("aspect_deg") is not None
+                ) else "Real terrain providers are unavailable; no aspect value is fabricated.",
             },
             "protected_area": {
                 "available": (sources.get("protected_area") or {}).get("ok") is True,
@@ -1139,7 +1220,7 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
         },
         "provenance": {k: v.get("provenance") for k, v in sources.items()},
         "raw_sources": sources,
-        "note": "Credential-free fallbacks keep satellite, fire context, protected-area context, geocoding, weather and public forest layers operational. Earth Engine still adds higher-value canopy/terrain/biomass/carbon/population layers when authenticated; absent values are never fabricated.",
+        "note": "Credential-free real providers keep satellite, weather, soil, terrain, fire context, protected-area context, geocoding and public forest layers operational. Earth Engine still adds higher-value canopy/biomass/carbon/population layers when authenticated; absent values are never fabricated.",
     }
 
 

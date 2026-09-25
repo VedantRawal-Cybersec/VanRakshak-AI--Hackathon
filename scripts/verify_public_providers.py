@@ -108,9 +108,22 @@ async def historical_landsat_smoke(usgs,gcp):
     else:
         products=[]
     if not item:
+        metadata_debug=[]
+        for _,candidate in products[:3]:
+            try:
+                raw=await gcp.metadata(candidate)
+                metadata_debug.append({
+                    "product":candidate,
+                    "summary":gcp._metadata_summary(raw),
+                    "has_reflectance":"REFLECTANCE_MULT_BAND_" in raw,
+                    "bytes":len(raw),
+                })
+            except Exception as exc:
+                metadata_debug.append({"product":candidate,"error":str(exc)})
         raise RuntimeError(
             "No verified Landsat observation within 550 days of 1987-06-01; "
-            f"WRS candidates={gcp.wrs2_candidates(LAT,LON)[:5]} archive_products={products[:5]}"
+            f"WRS candidates={gcp.wrs2_candidates(LAT,LON)} archive_products={products[:5]} "
+            f"metadata={metadata_debug}"
         )
     product=await gcp.resolve_item(item)
     if not product:

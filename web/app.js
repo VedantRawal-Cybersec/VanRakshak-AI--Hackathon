@@ -365,11 +365,12 @@ function renderPatrolResult(d,useDetected){
     );
   }
   $('patrolMetrics').innerHTML=patrolMetrics.join('');
-  $('patrolStops').innerHTML=route.map((s,i)=>`<article class="route-stop"><b>${i+1}</b><div><strong>${esc(s.id)}</strong><small>${fmt(s.lat,5)}, ${fmt(s.lon,5)} • priority ${fmt(s.priority,0)}/100 (${esc(s.priority_band||'')})</small><em>${esc(s.why_selected||'')}</em></div></article>`).join('')||'<div class="empty-state">No patrol stops returned.</div>';
+  $('patrolStops').innerHTML=route.map((s,i)=>{const area=s.candidate_context?.area_ha;return `<article class="route-stop"><b>${i+1}</b><div><strong>${esc(s.id)}</strong><small>${fmt(s.lat,5)}, ${fmt(s.lon,5)} • priority ${fmt(s.priority,0)}/100 (${esc(s.priority_band||'')})${area!=null?` • ${fmt(area,2)} ha candidate`:''}</small><em>${esc(s.why_selected||'')}</em></div></article>`}).join('')||'<div class="empty-state">No patrol hotspots detected for this comparison.</div>';
   const steps=(road.legs||[]).flatMap((leg,li)=>(leg.steps||[]).slice(0,8).map(x=>({...x,leg:li+1})));
   $('patrolInstructions').innerHTML=steps.length?`<h3>Road Guidance</h3>${steps.map(x=>`<div class="route-step"><b>L${x.leg}</b><span>${esc(x.instruction)} <small>${fmt(x.distance_m,0)} m • ${fmt(x.duration_min,1)} min</small></span></div>`).join('')}`:'<div class="drawer-note">No turn guidance returned. The ordered stops remain available, but straight lines must not be treated as roads.</div>';
   $('patrolResult').textContent=JSON.stringify(d,null,2);
-  setText('patrolStatus',road.geometry?`Road route ready from ${road.source}. ${fmt(road.distance_km,1)} km / ~${fmt(road.duration_min,0)} min.`:`Road service unavailable. Showing ${o.ordering_mode||'fallback'} ordering only.`);
+  if(d.status==='NO_PATROL_TARGETS')setText('patrolStatus','Analysis complete: no candidate-change patrol hotspots were detected, so routing was correctly skipped.');
+  else setText('patrolStatus',road.geometry?`Road route ready from ${road.source}. ${fmt(road.distance_km,1)} km / ~${fmt(road.duration_min,0)} min.`:`Road service unavailable. Showing ${o.ordering_mode||'fallback'} ordering only.`);
   clearDynamicLayer('patrol-route');clearDynamicLayer('patrol-stops');
   const features=[{type:'Feature',properties:{kind:'start'},geometry:{type:'Point',coordinates:[state.lon,state.lat]}},...route.map(s=>({type:'Feature',properties:{id:s.id,priority:s.priority,order:s.order},geometry:{type:'Point',coordinates:[s.lon,s.lat]}}))];
   addGeoPoints('patrol-stops',features,'#ffd166');
@@ -387,7 +388,7 @@ async function runPatrol(useDetected=false){
       const points=$('patrolPoints').value.trim().split('\n').filter(Boolean).map((row,i)=>{const v=row.split(',').map(x=>Number(x.trim()));if(v.length!==3||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>90||Math.abs(v[1])>180||v[2]<0||v[2]>100)throw new Error(`Invalid stop on line ${i+1}: use lat,lon,priority (0–100).`);return {id:String(i+1),lat:v[0],lon:v[1],priority:v[2]}});if(!points.length)throw new Error('Enter at least one patrol stop.');
       d=await api('/api/patrol/road-route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_lat:state.lat,start_lon:state.lon,points})});
     }
-    renderPatrolResult(d,useDetected);toast(d.road_route?'Road-aware patrol route loaded':'Road route unavailable; fallback ordering displayed',4500);
+    renderPatrolResult(d,useDetected);toast(d.status==='NO_PATROL_TARGETS'?'Analysis complete: no patrol hotspots detected':d.road_route?'Road-aware patrol route loaded':'Road route unavailable; fallback ordering displayed',4500);
   }catch(e){setText('patrolStatus','Patrol route failed: '+e.message);$('patrolResult').textContent=e.message;$('patrolStops').innerHTML='';$('patrolInstructions').innerHTML=''}finally{btn.disabled=false}
 }
 

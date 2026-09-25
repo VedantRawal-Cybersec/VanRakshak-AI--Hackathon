@@ -109,6 +109,25 @@ test('historical Landsat before-after comparisons render real tiles', async ({ r
   ];
 
   for(const row of cases){
+    const providerPayload={
+      collections:['landsat-c2-l2'],
+      intersects:{type:'Point',coordinates:[lon,lat]},
+      datetime:`${new Date(Date.parse(row.before+'T00:00:00Z')-90*86400000).toISOString()}/${new Date(Date.parse(row.before+'T00:00:00Z')+91*86400000).toISOString()}`,
+      query:{'eo:cloud_cover':{lte:100}},
+      limit:5
+    };
+    const direct=await request.post('https://planetarycomputer.microsoft.com/api/stac/v1/search',{data:providerPayload,timeout:120000});
+    const directText=await direct.text();
+    console.log('PC_DIRECT_POINT',row.before,direct.status(),directText.slice(0,1600));
+    const broad=await request.post('https://planetarycomputer.microsoft.com/api/stac/v1/search',{data:{
+      collections:['landsat-c2-l2'],
+      bbox:[lon-0.2,lat-0.2,lon+0.2,lat+0.2],
+      datetime:providerPayload.datetime,
+      limit:5
+    },timeout:120000});
+    const broadText=await broad.text();
+    console.log('PC_DIRECT_BBOX',row.before,broad.status(),broadText.slice(0,1600));
+
     const q=new URLSearchParams({
       lat:String(lat),lon:String(lon),
       before_date:row.before,after_date:row.after,

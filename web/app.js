@@ -269,8 +269,69 @@ function renderInvestigation(d){const s=d.sources||{};const reverse=s.reverse_ge
   renderNews(s.news);
 }
 
-function renderProfile(p){if(!p)return;state.profile=p;const loc=p.location||{},forest=p.forest||{},env=p.environment||{},terrain=p.terrain||{},human=p.human_pressure||{},fire=p.fire||{};const conservation=p.conservation||{};const pa=conservation?.inside===true||conservation?.value===1||conservation?.inside_protected_area===true?'Inside protected area':conservation?.error?'Unavailable':conservation?.inside===false?'No containing protected area found':'Not confirmed';
-  $('profilePanel').innerHTML=`<div class="profile-grid"><div><small>Location</small><b>${esc(loc.display_name||state.place)}</b></div><div><small>Latest Sentinel scene</small><b>${esc(p.satellite?.latest_scene_time||'—')}</b></div><div><small>Dynamic World tree probability</small><b>${forest.dynamic_world_tree_probability!=null?pct(forest.dynamic_world_tree_probability,1):'—'}</b></div><div><small>GEDI biomass</small><b>${forest.gedi_agbd_mg_per_ha!=null?fmt(forest.gedi_agbd_mg_per_ha,1)+' Mg/ha':'—'}</b></div><div><small>Elevation</small><b>${terrain.elevation_m!=null?fmt(terrain.elevation_m,0)+' m':'—'}</b></div><div><small>Slope</small><b>${terrain.slope_deg!=null?fmt(terrain.slope_deg,1)+'°':'—'}</b></div><div><small>Temperature</small><b>${env.temperature_c??'—'} °C</b></div><div><small>Humidity</small><b>${env.humidity_pct??'—'}%</b></div><div><small>Mapped human pressure</small><b>${human.mapped_features??'—'}</b></div><div><small>Fire detections</small><b>${fire.detections_in_window??'—'}</b></div><div><small>Protected status</small><b>${esc(pa)}</b></div><div><small>Earth Engine</small><b>${p.earth_engine?.configured?'Configured':'Credential gated'}</b></div></div>`;
+function renderProfile(p){
+  if(!p)return;
+  state.profile=p;
+  const loc=p.location||{},forest=p.forest||{},env=p.environment||{},terrain=p.terrain||{},human=p.human_pressure||{},fire=p.fire||{},availability=p.availability||{};
+  const conservation=p.conservation||{},evidence=state.evidence||{},change=evidence.change||{},carbon=evidence.carbon||{};
+  const latestObs=(state.vegetationSeries||[]).at(-1)||{};
+  const protectedSource=p.provenance?.protected_area?.source||p.raw_sources?.protected_area?.provenance?.source||'Protected-area intelligence';
+  const pa=conservation?.inside===true||conservation?.value===1||conservation?.inside_protected_area===true
+    ?'Inside protected area'
+    :conservation?.error?'Unavailable'
+    :conservation?.inside===false?'No containing protected area found'
+    :'Not confirmed';
+  const ndviDelta=change.mean_ndvi_change;
+  const vegetation=ndviDelta!=null
+    ?(Number(ndviDelta)<=-0.10?'Strong decline':Number(ndviDelta)<=-0.03?'Declining':Number(ndviDelta)<0.03?'Stable':'Improving / greening')
+    :(latestObs.mean_ndvi!=null?'Current Sentinel vegetation observation':'Awaiting Sentinel analysis');
+  const fragChange=change.fragmentation?.change||change.fragmentation_change||{};
+  const frag=fragChange.patch_count_pct??fragChange.patch_density_pct??fragChange.edge_density_pct??null;
+  const dynamicValue=forest.dynamic_world_tree_probability;
+  const sentinelForest=latestObs.forest_fraction;
+  const dynamicDisplay=dynamicValue!=null
+    ?pct(dynamicValue,1)
+    :sentinelForest!=null
+      ?pct(sentinelForest,1)+' Sentinel forest fraction'
+      :'Unavailable';
+  const dynamicMeta=dynamicValue!=null
+    ?'Dynamic World / Earth Engine'
+    :sentinelForest!=null
+      ?'Credential-free Sentinel-2 forest-mask fallback'
+      :(availability.dynamic_world_tree_probability?.reason||'Dynamic World source unavailable');
+  const gediDisplay=forest.gedi_agbd_mg_per_ha!=null?fmt(forest.gedi_agbd_mg_per_ha,1)+' Mg/ha':'Unavailable';
+  const gediMeta=forest.gedi_agbd_mg_per_ha!=null?'NASA GEDI biomass':(availability.gedi_biomass?.reason||'GEDI layer unavailable');
+  const slopeDisplay=terrain.slope_deg!=null?fmt(terrain.slope_deg,1)+'°':'Unavailable';
+  const slopeMeta=terrain.slope_deg!=null?'SRTM terrain':(availability.slope?.reason||'Slope source unavailable');
+  const carbonDisplay=carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,1)+' tCO₂e':'Not calculated';
+  const carbonMeta=carbon.estimated_co2e_t!=null?(carbon.density_source||carbon.estimate_class||'Reference-based estimate'):'Run evidence analysis to calculate carbon impact';
+  const humanDisplay=human.mapped_features!=null?String(human.mapped_features):'Unavailable';
+  const humanMeta=human.source||p.provenance?.human_pressure?.source||'OpenStreetMap / Overpass';
+  const candidate=change.candidate_area_ha!=null?fmt(change.candidate_area_ha,2)+' ha':'Not measured';
+  const latestNdvi=latestObs.mean_ndvi!=null?fmt(latestObs.mean_ndvi,3):'—';
+  const eeStatus=p.earth_engine?.configured?'Configured':'Optional enhancement not configured';
+
+  const cell=(label,value,meta='',tone='')=>`<div class="profile-cell ${esc(tone)}"><small>${esc(label)}</small><b>${esc(value==null?'—':String(value))}</b>${meta?`<em>${esc(meta)}</em>`:''}</div>`;
+
+  $('profilePanel').innerHTML=`<div class="profile-grid enhanced-profile">
+    ${cell('Location',loc.display_name||state.place,state.regionSub||'Reverse geocoded selected area','wide')}
+    ${cell('Latest Sentinel scene',p.satellite?.latest_scene_time||'Unavailable',`${p.satellite?.available_scenes??'—'} catalogue scene(s) • ${p.satellite?.resolution_m||10} m`)}
+    ${cell('Current Sentinel NDVI',latestNdvi,latestObs.datetime?`Observed ${String(latestObs.datetime).slice(0,10)}`:'Loads from vegetation trend')}
+    ${cell('Forest cover / tree signal',dynamicDisplay,dynamicMeta)}
+    ${cell('Vegetation condition',vegetation,ndviDelta!=null?`Before/after NDVI Δ ${fmt(ndviDelta,3)}`:'Based on latest available Sentinel observation',ndviDelta!=null&&Number(ndviDelta)<-0.03?'danger':'ok')}
+    ${cell('Candidate affected area',candidate,change.screening_confidence!=null?`Screening confidence ${pct(change.screening_confidence,0)}`:'Run before/after analysis')}
+    ${cell('GEDI biomass',gediDisplay,gediMeta)}
+    ${cell('Carbon impact',carbonDisplay,carbonMeta)}
+    ${cell('Elevation',terrain.elevation_m!=null?fmt(terrain.elevation_m,0)+' m':'Unavailable','Source-backed terrain/weather elevation')}
+    ${cell('Slope',slopeDisplay,slopeMeta)}
+    ${cell('Temperature',env.temperature_c!=null?fmt(env.temperature_c,1)+' °C':'Unavailable','Current weather observation')}
+    ${cell('Humidity',env.humidity_pct!=null?fmt(env.humidity_pct,0)+'%':'Unavailable','Current weather observation')}
+    ${cell('Mapped human pressure',humanDisplay,humanMeta)}
+    ${cell('Fire detections / context',fire.detections_in_window!=null?String(fire.detections_in_window):'Unavailable',fire.source||'NASA fire intelligence')}
+    ${cell('Protected status',pa,protectedSource)}
+    ${cell('Fragmentation',frag!=null?`${Number(frag)>=0?'+':''}${fmt(frag,1)}%`:'Not measured',frag!=null?'Derived from before/after forest mask patch/edge change':'Run before/after evidence analysis')}
+    ${cell('Earth Engine',eeStatus,p.earth_engine?.configured?'Higher-value layers enabled':'Credential-free fallbacks remain active')}
+  </div>`;
   renderAnalysisIntelligence();
 }
 

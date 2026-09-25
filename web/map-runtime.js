@@ -41,6 +41,17 @@ class RasterMap {
   getBearing(){return 0} getPitch(){return 0}
   jumpTo(o){const c=o.center||[this.getCenter().lng,this.getCenter().lat];this.map.setView([c[1],c[0]],o.zoom??this.getZoom(),{animate:false});return this}
   flyTo(o){return this.jumpTo(o)}
+  fitBounds(bounds,opts={}){
+    if(!Array.isArray(bounds)||bounds.length<2)return this;
+    const sw=bounds[0],ne=bounds[1];
+    if(!sw||!ne)return this;
+    this.map.fitBounds([[sw[1],sw[0]],[ne[1],ne[0]]],{
+      padding:opts.padding??40,
+      maxZoom:opts.maxZoom??14,
+      animate:opts.duration!==0
+    });
+    return this;
+  }
   resize(){if(!this.removed)this.map.invalidateSize({pan:false});return this}
   remove(){this.removed=true;this.map.remove()}
 }

@@ -203,3 +203,97 @@ test('selected forest prediction explains what why actions impact and confidence
   await expect(page.locator('#predictionConfidence')).toContainText('model confidence');
   expect(fatal).toEqual([]);
 });
+
+
+test('precision patrol shows route field evidence scroll and close controls', async ({ page }) => {
+  const fatal=[];
+  page.on('pageerror', e => fatal.push(String(e)));
+
+  await page.route('**/api/patrol/live**', async route => {
+    await route.fulfill({
+      status:200,
+      contentType:'application/json',
+      body:JSON.stringify({
+        ordering:{
+          route:[{
+            id:'candidate-1',lat:12.335,lon:75.805,priority:84,priority_band:'HIGH',order:1,
+            why_selected:'Largest verified candidate polygon near the selected forest.',
+            candidate_context:{area_ha:2.4},
+            field_tasks:[
+              'Confirm actual land-cover condition.',
+              'Capture a geotagged overview photo.',
+              'Record a continuous 15–30 second field video.',
+              'Capture close-up disturbance evidence.'
+            ],
+            evidence_required:{
+              photo:'At least 1 geotagged overview photo.',
+              video:'At least 1 continuous 15–30 second field video.',
+              metadata:'GPS, timestamp and stop ID.'
+            }
+          }],
+          stop_count:1,
+          ordering_mode:'ROAD_TIME_PRIORITY'
+        },
+        road_route:{
+          distance_km:4.2,
+          duration_min:13,
+          source:'OSRM / OpenStreetMap',
+          geometry:{type:'LineString',coordinates:[[75.8069,12.3375],[75.805,12.335]]},
+          legs:[{steps:[{instruction:'Head south on mapped forest access road',distance_m:1200,duration_min:4.5}]}]
+        },
+        status:'ROAD_ROUTE_READY',
+        analysis:{
+          candidate_area_ha:2.4,screening_confidence:0.84,warning_score:68,
+          before_scene:'S2_BEFORE',after_scene:'S2_AFTER',
+          before_observed_at:'2026-01-01T05:00:00Z',after_observed_at:'2026-02-01T05:00:00Z'
+        },
+        operational_brief:{
+          situation:'1 candidate-change patrol hotspot generated from real Sentinel-2 screening.',
+          before_scene:{id:'S2_BEFORE',datetime:'2026-01-01T05:00:00Z'},
+          after_scene:{id:'S2_AFTER',datetime:'2026-02-01T05:00:00Z'},
+          probable_drivers:[{driver:'Road-access pressure',relative_support_pct:61}],
+          recommended_actions:[{what:'Ground verify',how:'Inspect the candidate polygon and capture geotagged evidence.',timeframe:'Within 24 h'}],
+          evidence_required:[
+            'Geotagged overview photo at each stop.',
+            'Continuous 15–30 second field video showing canopy, ground and nearby road/track context.',
+            'GPS coordinate, timestamp, patrol member and stop ID for every media item.'
+          ],
+          field_rule:'Satellite candidate polygons are screening evidence; patrol media are the verification record.',
+          expected_impact:'Verify the hotspot quickly and preserve auditable evidence.'
+        },
+        generated_at:'2026-09-25T06:30:00Z'
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-nav="patrol"]').click();
+  await expect(page.locator('#patrolModal')).toBeVisible();
+
+  const overflow=await page.locator('#patrolScroll').evaluate(el => getComputedStyle(el).overflowY);
+  expect(['auto','scroll']).toContain(overflow);
+
+  await page.locator('#runDetectedPatrol').click();
+  await expect(page.locator('#patrolBrief')).toContainText('REAL SATELLITE EVIDENCE');
+  await expect(page.locator('#patrolBrief')).toContainText('S2_BEFORE');
+  await expect(page.locator('#patrolEvidenceRequirements')).toContainText(/video/i);
+  await expect(page.locator('#patrolStops')).toContainText('Exact field checks');
+  await expect(page.locator('#showPatrolMainMap')).toBeEnabled();
+
+  await page.locator('#patrolEvidenceFiles').setInputFiles({
+    name:'field-video.mp4',
+    mimeType:'video/mp4',
+    buffer:Buffer.from('fake-video-bytes')
+  });
+  await expect(page.locator('#patrolEvidencePreview')).toContainText('Real field video attachment');
+
+  await page.locator('#showPatrolMainMap').click();
+  await expect(page.locator('#patrolModal')).toHaveClass(/hidden/);
+
+  await page.locator('[data-nav="patrol"]').click();
+  await expect(page.locator('#patrolModal')).toBeVisible();
+  await page.locator('#closePatrol').click();
+  await expect(page.locator('#patrolModal')).toHaveClass(/hidden/);
+
+  expect(fatal).toEqual([]);
+});

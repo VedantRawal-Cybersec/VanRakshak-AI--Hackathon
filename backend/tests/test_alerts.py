@@ -23,7 +23,14 @@ def sample_bundle():
         "warning":{"level":"HIGH","score":77},
         "forest_doctor":{"probable_drivers":[{"driver":"Road-access pressure","relative_support_pct":63}]},
         "protected_area":True,
-        "sources":{"fire":{"ok":True,"data":[],"provenance":{"source":"NASA FIRMS"}}},
+        "climate":{"temperature_anomaly_c":1.8,"rainfall_deficit_pct":31,"window":{"end":"2026-02-04","days":30}},
+        "carbon":{"estimated_co2e_t":42.5,"estimate_class":"BROAD_REFERENCE_FALLBACK"},
+        "action_plan":{"actions":[{"priority":"HIGH","what":"Ground-verify vegetation change","how":"Inspect the candidate polygon and capture geotagged evidence.","expected_impact":"Stop further expansion of the candidate footprint."}]},
+        "sources":{
+            "fire":{"ok":True,"data":[],"provenance":{"source":"NASA FIRMS"}},
+            "human_pressure":{"ok":True,"data":{"elements":[{"id":1},{"id":2}]},"provenance":{"source":"OpenStreetMap / Overpass"}},
+            "protected_area":{"ok":True,"data":{"inside":True},"provenance":{"source":"OpenStreetMap protected-area fallback"}},
+        },
         "evidence_chain":{"items":[]},
     }
 
@@ -38,6 +45,13 @@ def test_compose_patrol_alert_has_field_brief_sections():
     assert "HOW IT MAY BE HAPPENING:" in out["message"]
     assert "PATROL FIRST PRIORITY:" in out["message"]
     assert "not proof" in out["message"].lower()
+    kinds={x["kind"] for x in out["alerts"]}
+    assert "FOREST_CHANGE" in kinds
+    assert "VEGETATION" in kinds
+    assert "CLIMATE" in kinds
+    assert "PROTECTED_AREA" in kinds
+    assert "CARBON" in kinds
+    assert out["impact_summary"]["carbon"]["estimated_co2e_t"]==42.5
 
 
 def test_alert_compose_endpoint_uses_evidence(monkeypatch):

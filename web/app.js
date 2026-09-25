@@ -992,13 +992,13 @@ function drawPatrolOnMainMap(route,road){
 }
 function renderPatrolMiniMap(route,road){
   const el=$('patrolRouteMap'),fallbackEl=$('patrolMapFallback');
-  if(!el||typeof maplibregl==='undefined')return;
+  if(!el)return;
   try{state.patrolMap?.remove()}catch{}
   const geometry=road?.geometry||patrolFallbackGeometry(route);
   if(!geometry){if(fallbackEl)fallbackEl.textContent='No route geometry is available for this patrol.';return}
   if(fallbackEl)fallbackEl.textContent=road?.geometry?'Road/track geometry from the routing provider.':'Road geometry unavailable — dashed line shows stop order only and must not be treated as drivable.';
-  state.patrolMap=new maplibregl.Map({container:el,style:baseStyle,center:[state.lon,state.lat],zoom:11,attributionControl:false});
-  state.patrolMap.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+  state.patrolMap=createEarthMap({container:el,style:baseStyle,center:[state.lon,state.lat],zoom:11,attributionControl:false,minZoom:3,maxZoom:18});
+  try{if(typeof maplibregl!=='undefined' && state.patrolMap instanceof maplibregl.Map)state.patrolMap.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');else state.patrolMap.addControl(null,'top-right')}catch{}
   state.patrolMap.on('load',()=>{
     const fallback=!road?.geometry;
     state.patrolMap.addSource('patrol-route-mini',{type:'geojson',data:{type:'Feature',properties:{fallback},geometry}});

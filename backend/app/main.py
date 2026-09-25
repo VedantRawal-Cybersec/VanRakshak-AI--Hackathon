@@ -1060,6 +1060,12 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
     weather_full = sources.get("weather", {}).get("data") or {}
     weather_data = weather_full.get("current", {})
     pressure = sources.get("human_pressure", {}).get("data") or {}
+    pressure_count = None
+    if isinstance(pressure, dict):
+        if pressure.get("count") is not None:
+            pressure_count = pressure.get("count")
+        elif isinstance(pressure.get("elements"), list):
+            pressure_count = len(pressure.get("elements") or [])
     fires = sources.get("fire", {}).get("data") or []
     earth_data = sources.get("earth_search", {}).get("data") or {}
     scenes = earth_data.get("features", []) if isinstance(earth_data, dict) else []
@@ -1086,9 +1092,10 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
             "wind_kmh": weather_data.get("wind_speed_10m"),
         },
         "human_pressure": {
-            "mapped_features": pressure.get("count") if isinstance(pressure, dict) else None,
+            "mapped_features": pressure_count,
             "human_modification_reference": (ee_values.get("human_modification") or {}).get("value"),
             "population_reference": (ee_values.get("worldpop_population") or {}).get("value"),
+            "source": (sources.get("human_pressure", {}).get("provenance") or {}).get("source"),
         },
         "fire": {
             "detections_in_window": len(fires) if isinstance(fires, list) else None,
@@ -1108,6 +1115,28 @@ async def forest_profile(lat: float, lon: float, place: str = "India"):
         "conservation": (sources.get("protected_area") or {}).get("data") or ee_values.get("wdpa_protected"),
         "soil": sources.get("soil"),
         "earth_engine": {"configured": bool(settings.google_cloud_project), "values": ee_values},
+        "availability": {
+            "dynamic_world_tree_probability": {
+                "available": (ee_values.get("dynamic_world_trees") or {}).get("value") is not None,
+                "source": "Dynamic World / Google Earth Engine",
+                "reason": None if (ee_values.get("dynamic_world_trees") or {}).get("value") is not None else "Earth Engine credential required; use Sentinel-2 vegetation metrics as the credential-free forest-condition fallback.",
+            },
+            "gedi_biomass": {
+                "available": (ee_values.get("gedi_agbd") or {}).get("value") is not None,
+                "source": "NASA GEDI via Google Earth Engine",
+                "reason": None if (ee_values.get("gedi_agbd") or {}).get("value") is not None else "Location-specific GEDI biomass is unavailable without the authenticated Earth Engine layer; carbon impact uses a clearly labelled scientific reference fallback when necessary.",
+            },
+            "slope": {
+                "available": (ee_values.get("srtm_slope") or {}).get("value") is not None,
+                "source": "SRTM terrain via Google Earth Engine",
+                "reason": None if (ee_values.get("srtm_slope") or {}).get("value") is not None else "Slope layer unavailable from the configured runtime; elevation remains source-backed.",
+            },
+            "protected_area": {
+                "available": (sources.get("protected_area") or {}).get("ok") is True,
+                "source": ((sources.get("protected_area") or {}).get("provenance") or {}).get("source"),
+                "reason": (sources.get("protected_area") or {}).get("error"),
+            },
+        },
         "provenance": {k: v.get("provenance") for k, v in sources.items()},
         "raw_sources": sources,
         "note": "Credential-free fallbacks keep satellite, fire context, protected-area context, geocoding, weather and public forest layers operational. Earth Engine still adds higher-value canopy/terrain/biomass/carbon/population layers when authenticated; absent values are never fabricated.",

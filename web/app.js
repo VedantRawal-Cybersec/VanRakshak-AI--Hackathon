@@ -371,7 +371,9 @@ function renderProfile(p){
   const gediDisplay=forest.gedi_agbd_mg_per_ha!=null?fmt(forest.gedi_agbd_mg_per_ha,1)+' Mg/ha':'Unavailable';
   const gediMeta=forest.gedi_agbd_mg_per_ha!=null?'NASA GEDI biomass':(availability.gedi_biomass?.reason||'GEDI layer unavailable');
   const slopeDisplay=terrain.slope_deg!=null?fmt(terrain.slope_deg,1)+'°':'Unavailable';
-  const slopeMeta=terrain.slope_deg!=null?'SRTM terrain':(availability.slope?.reason||'Slope source unavailable');
+  const slopeMeta=terrain.slope_deg!=null?(terrain.source||availability.slope?.source||'DEM-derived terrain'):(availability.slope?.reason||'Slope source unavailable');
+  const aspectDisplay=terrain.aspect_deg!=null?fmt(terrain.aspect_deg,0)+'°':'Unavailable';
+  const aspectMeta=terrain.aspect_deg!=null?(terrain.method||terrain.source||availability.aspect?.source||'DEM-derived aspect'):(availability.aspect?.reason||'Aspect source unavailable');
   const carbonRef=evidence.carbon_reference||{};
   const carbonDisplay=carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,1)+' tCO₂e':'Local carbon unavailable';
   const carbonMeta=carbon.estimated_co2e_t!=null
@@ -398,6 +400,7 @@ function renderProfile(p){
     ${cell('Carbon impact',carbonDisplay,carbonMeta)}
     ${cell('Elevation',terrain.elevation_m!=null?fmt(terrain.elevation_m,0)+' m':'Unavailable','Source-backed terrain/weather elevation')}
     ${cell('Slope',slopeDisplay,slopeMeta)}
+    ${cell('Aspect',aspectDisplay,aspectMeta)}
     ${cell('Temperature',env.temperature_c!=null?fmt(env.temperature_c,1)+' °C':'Unavailable','Current weather observation')}
     ${cell('Humidity',env.humidity_pct!=null?fmt(env.humidity_pct,0)+'%':'Unavailable','Current weather observation')}
     ${cell('Mapped human pressure',humanDisplay,humanMeta)}

@@ -1,0 +1,21 @@
+name: Production Latest Runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/verify_production_latest.py'
+      - '.github/workflows/production-latest-runtime.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify latest runtime on Railway production
+        run: python scripts/verify_production_latest.py

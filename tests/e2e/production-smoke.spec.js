@@ -128,6 +128,16 @@ test('historical Landsat before-after comparisons render real tiles', async ({ r
     const broadText=await broad.text();
     console.log('PC_DIRECT_BBOX',row.before,broad.status(),broadText.slice(0,1600));
 
+    const earth=await request.post('https://earth-search.aws.element84.com/v1/search',{data:{
+      collections:['landsat-c2-l2'],
+      intersects:{type:'Point',coordinates:[lon,lat]},
+      datetime:providerPayload.datetime,
+      query:{'eo:cloud_cover':{lte:100}},
+      limit:3
+    },timeout:120000});
+    const earthText=await earth.text();
+    console.log('EARTH_SEARCH_LANDSAT',row.before,earth.status(),earthText.slice(0,6000));
+
     const q=new URLSearchParams({
       lat:String(lat),lon:String(lon),
       before_date:row.before,after_date:row.after,

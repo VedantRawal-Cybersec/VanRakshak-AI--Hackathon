@@ -1498,16 +1498,35 @@ async def live_patrol_ep(
     points=[]; contexts={}
     base_priority=float((bundle.get("warning") or {}).get("score") or 50)
     confidence=float(change.get("screening_confidence") or 0.0)
-    for i,feature in enumerate(features[:max_points]):
+    ranked_features=sorted(
+        features,
+        key=lambda feature:float(((feature.get("properties") or {}).get("area_ha") or 0.0)),
+        reverse=True,
+    )[:max_points]
+    max_area=max([float(((feature.get("properties") or {}).get("area_ha") or 0.0)) for feature in ranked_features] or [0.0])
+    for i,feature in enumerate(ranked_features):
         center=_geojson_centroid(feature)
         if center is None: continue
         plat,plon=center
-        priority=max(1,min(100,base_priority*.65+confidence*100*.30+max(0,5-i)))
+        area_ha=float(((feature.get("properties") or {}).get("area_ha") or 0.0))
+        area_signal=(area_ha/max_area) if max_area>0 else 0.0
+        priority=max(1,min(100,base_priority*.55+confidence*100*.30+area_signal*15))
         pid=f"candidate-{i+1}"
         points.append({"id":pid,"lat":plat,"lon":plon,"priority":priority})
-        contexts[pid]={"candidate_polygon":i+1,"screening_confidence":round(confidence,3),"warning_score":round(base_priority,1),"centroid":{"lat":round(plat,6),"lon":round(plon,6)}}
+        contexts[pid]={"candidate_polygon":i+1,"area_ha":round(area_ha,4) if area_ha else None,"screening_confidence":round(confidence,3),"warning_score":round(base_priority,1),"centroid":{"lat":round(plat,6),"lon":round(plon,6)}}
     if not points:
-        raise HTTPException(404,"No real candidate-change polygons were available to create patrol stops")
+        return {
+            "ordering":{"route":[],"stop_count":0,"ordering_mode":"NO_TARGETS","method":"No routing performed because the change screen returned no patrol hotspots."},
+            "road_route":None,
+            "route_summary":{"stops":0,"ordering_mode":"NO_TARGETS"},
+            "status":"NO_PATROL_TARGETS",
+            "analysis":{"hotspots_used":0,"candidate_polygon_count":len(features),"candidate_area_ha":change.get("candidate_area_ha"),"screening_confidence":change.get("screening_confidence"),"warning_score":base_priority,"before_scene":(change.get("before") or {}).get("id"),"after_scene":(change.get("after") or {}).get("id"),"before_observed_at":(change.get("before") or {}).get("datetime"),"after_observed_at":(change.get("after") or {}).get("datetime")},
+            "pipeline":["Run Sentinel-2 before/after multispectral change screening","Inspect candidate-change polygons","No routable patrol hotspots were detected, so road routing was intentionally skipped"],
+            "candidate_source":"Sentinel-2 before/after candidate-change polygons",
+            "generated_at":datetime.now(timezone.utc).isoformat(),
+            "label":"DERIVED_FROM_REAL_DATA",
+            "warning":"No candidate-change patrol hotspots were detected for this comparison. This is a valid analysis result, not a routing failure.",
+        }
     routed=await patrol_road_route(PatrolRequest(start_lat=lat,start_lon=lon,points=points))
     for stop in (routed.get("ordering") or {}).get("route") or []:
         stop["candidate_context"]=contexts.get(stop.get("id"))

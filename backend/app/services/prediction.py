@@ -19,8 +19,6 @@ def _dates_axis(dates: list[str] | None, count: int):
     parsed=[x.replace(tzinfo=timezone.utc) if x.tzinfo is None else x for x in parsed]
     order=np.argsort(np.array([x.timestamp() for x in parsed]))
     parsed=[parsed[int(i)] for i in order]
-    if any(parsed[i] >= parsed[i+1] for i in range(len(parsed)-1)):
-        raise ValueError("dates must be unique")
     x=np.array([(d-parsed[0]).total_seconds()/86400.0 for d in parsed],dtype=float)
     return x, parsed, order
 
@@ -64,8 +62,9 @@ def predict(req: ThreatPredictionRequest):
     if order is not None:
         y=y[order]
     steps=max(1,min(int(req.steps),24))
-    cadence=float(np.median(np.diff(x))) if len(x)>1 else 1.0
-    if cadence<=0: cadence=1.0
+    gaps=np.diff(x) if len(x)>1 else np.array([],dtype=float)
+    positive_gaps=gaps[gaps>0]
+    cadence=float(np.median(positive_gaps)) if len(positive_gaps) else 1.0
 
     ols_s,ols_i=_fit_line(x,y)
     robust_s,robust_i=_theil_sen(x,y)

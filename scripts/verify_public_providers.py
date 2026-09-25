@@ -5,7 +5,7 @@ import httpx
 from app.adapters import (
     EarthSearchAdapter, CopernicusAdapter, OpenMeteoAdapter, SoilGridsAdapter, Sentinel1ASFAdapter,
     NominatimAdapter, PhotonAdapter, GIBSAdapter, EONETAdapter, OverpassAdapter, GDELTAdapter, GFWAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter, METNorwayAdapter,
-    USGSLandsatAdapter, GCPLandsatAdapter,
+    USGSLandsatAdapter, GCPLandsatAdapter, OSRMAdapter,
 )
 from app.services.historical_landsat_tiles import render_png as render_historical_landsat_png, parse_mtl
 
@@ -175,6 +175,24 @@ async def gibs_render_smoke(gibs):
         raise RuntimeError("NASA GIBS render failures: "+json.dumps(failed,sort_keys=True))
     return result
 
+async def osrm_routing_smoke(osrm):
+    # Stable urban road points verify the public engine itself; forest route
+    # completeness remains location-dependent and is surfaced in the UI.
+    points=[(12.9716,77.5946),(12.9750,77.6000),(12.9800,77.6050)]
+    table=await osrm.table(points)
+    durations=table.get("durations") or []
+    if len(durations)!=len(points) or any(len(row)!=len(points) for row in durations):
+        raise RuntimeError("OSRM travel-time matrix shape is invalid")
+    route=await osrm.route(points)
+    geom=route.get("geometry") or {}
+    if route.get("distance_km",0)<=0 or route.get("duration_min",0)<=0 or geom.get("type")!="LineString":
+        raise RuntimeError("OSRM route did not return positive distance/duration and LineString geometry")
+    legs=route.get("legs") or []
+    if len(legs)<2:
+        raise RuntimeError("OSRM route did not expose expected route legs")
+    return {"ok":True,"distance_km":route.get("distance_km"),"duration_min":route.get("duration_min"),"matrix_size":len(durations),"legs":len(legs),"source":route.get("source")}
+
+
 async def check(name, coro, validator=lambda x: x is not None):
     try:
         data=await coro
@@ -186,7 +204,7 @@ async def check(name, coro, validator=lambda x: x is not None):
 async def main():
     earth=EarthSearchAdapter(); cop=CopernicusAdapter(); weather=OpenMeteoAdapter(); soil=SoilGridsAdapter()
     s1=Sentinel1ASFAdapter(); nom=NominatimAdapter(); photon=PhotonAdapter()
-    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter(); gnews=GoogleNewsRSSAdapter(); metno=METNorwayAdapter(); usgs=USGSLandsatAdapter(); gcp=GCPLandsatAdapter()
+    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter(); gnews=GoogleNewsRSSAdapter(); metno=METNorwayAdapter(); usgs=USGSLandsatAdapter(); gcp=GCPLandsatAdapter(); osrm=OSRMAdapter()
     checks=await asyncio.gather(
         check("Earth Search Sentinel-2",earth.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
         check("Copernicus STAC",cop.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
@@ -204,6 +222,7 @@ async def main():
         check("Sentinel-2 filtered date/cloud rendering",filtered_satellite_smoke(earth),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Planetary Computer six-mode rendering",planetary_render_smoke(pc),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Historical Landsat 1987 archive rendering",historical_landsat_smoke(usgs,gcp),lambda x:isinstance(x,dict) and x.get("ok") is True),
+        check("OSRM patrol matrix + route rendering",osrm_routing_smoke(osrm),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("NASA GIBS environmental raster rendering",gibs_render_smoke(gibs),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Overpass protected-area fallback",overpass.containing_protected_areas(LAT,LON),lambda x:isinstance(x,dict) and "elements" in x),
         check("GDELT forest news",gdelt.forest_news("Kodagu Karnataka","1week"),lambda x:isinstance(x,dict)),
@@ -211,7 +230,7 @@ async def main():
         check("GFW RADD radar layer metadata",asyncio.sleep(0, result=gfw.tile_layer("wur_radd_alerts")),lambda x:isinstance(x,dict) and "wur_radd_alerts" in x.get("tile_url","")),
     )
     print(json.dumps({"location":{"lat":LAT,"lon":LON},"checks":checks},indent=2))
-    core={"Earth Search Sentinel-2","Open-Meteo","MET Norway","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Sentinel-2 filtered date/cloud rendering","Planetary Computer six-mode rendering","Historical Landsat 1987 archive rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
+    core={"Earth Search Sentinel-2","Open-Meteo","MET Norway","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Sentinel-2 filtered date/cloud rendering","Planetary Computer six-mode rendering","Historical Landsat 1987 archive rendering","OSRM patrol matrix + route rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
     failed_core=[x for x in checks if x["source"] in core and not x["ok"]]
     if failed_core:
         print("Core public provider smoke failure:",failed_core,file=sys.stderr)

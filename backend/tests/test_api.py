@@ -339,3 +339,31 @@ def test_predict_location_temporal_backtest_uses_real_holdout_contract(monkeypat
     assert bt["rmse"]>=0
     assert 0 <= bt["interval_coverage_pct"] <= 100
     assert "ground-truth" in bt["note"].lower()
+
+
+def test_latest_satellite_uses_real_catalogue_fallback(monkeypatch):
+    from app import main
+
+    async def broken_copernicus(*args, **kwargs):
+        raise RuntimeError("temporary upstream outage")
+
+    async def real_earth_search(*args, **kwargs):
+        return {
+            "type":"FeatureCollection",
+            "features":[{
+                "id":"S2_REAL_FALLBACK",
+                "type":"Feature",
+                "properties":{"datetime":"2026-09-22T05:16:49Z","eo:cloud_cover":3.1},
+                "assets":{},
+            }],
+        }
+
+    monkeypatch.setattr(main.copernicus,"latest_sentinel2",broken_copernicus)
+    monkeypatch.setattr(main.earth,"latest_sentinel2",real_earth_search)
+    r=client.get("/api/satellite/latest",params={"lat":12.3375,"lon":75.8069,"days":30,"cloud_lt":40})
+    assert r.status_code==200
+    data=r.json()
+    assert data["ok"] is True
+    assert data["data"]["features"][0]["id"]=="S2_REAL_FALLBACK"
+    assert "Earth Search" in data["provenance"]["source"]
+    assert "fallback" in data["provenance"]["notes"].lower()

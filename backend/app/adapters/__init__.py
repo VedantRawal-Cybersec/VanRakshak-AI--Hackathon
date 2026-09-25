@@ -23,4 +23,6 @@ from .planetary_computer import PlanetaryComputerAdapter
 from .google_news_rss import GoogleNewsRSSAdapter
 
 from .met_norway import METNorwayAdapter
-\nfrom .usgs_landsat import USGSLandsatAdapter\nfrom .gcp_landsat import GCPLandsatAdapter\n
+
+from .usgs_landsat import USGSLandsatAdapter
+from .gcp_landsat import GCPLandsatAdapter

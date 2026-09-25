@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 import os
 
+BENCHMARK_ARTIFACT_RELATIVE_PATH = Path("ai/supervised_ndvi/benchmark_model.json")
+
 def _metrics():
     p=os.getenv("OPENCD_METRICS_JSON","").strip()
     if not p:
@@ -49,7 +51,7 @@ def status() -> dict:
 
 def supervised_benchmark() -> dict:
     """Load measured metrics from the real Sentinel-2 + INPE PRODES labelled benchmark."""
-    path = Path(__file__).resolve().parents[3] / "ai" / "supervised_ndvi" / "benchmark_model.json"
+    path = Path(__file__).resolve().parents[3] / BENCHMARK_ARTIFACT_RELATIVE_PATH
     if not path.exists():
         return {"available": False, "note": "Real supervised benchmark artifact is not packaged."}
     try:

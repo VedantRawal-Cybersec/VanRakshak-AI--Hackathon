@@ -34,7 +34,8 @@ def status() -> dict:
             "ready": True,
             "method": "Sentinel-2 multispectral NDVI/NDMI/NBR/NDWI + SCL mask + IsolationForest corroboration + optional measured Sentinel-1 SAR change",
         },
-        "supervised_benchmark": supervised_benchmark(),\n        "opencd": {
+        "supervised_benchmark": supervised_benchmark(),
+        "opencd": {
             "ready": bool(cfg_ok and ckpt_ok and repo_ok),
             "validated": validated,
             "repo_path_configured": bool(repo), "repo_path_exists": repo_ok,

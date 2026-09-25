@@ -6,6 +6,7 @@ import rasterio
 from rasterio.windows import Window
 from rasterio.warp import transform_bounds, reproject, Resampling, transform_geom
 from rasterio.features import shapes
+from shapely.geometry import shape as shapely_shape
 from scipy.ndimage import label as cc_label, binary_erosion
 from app.adapters.base import AdapterError
 
@@ -194,9 +195,17 @@ def analyze(before: dict, after: dict, lat: float, lon: float, radius_km: float 
     feats=[]
     for geom,val in shapes(candidate.astype("uint8"),mask=candidate,transform=transform):
         if val != 1: continue
-        try: geom4326=transform_geom(crs,"EPSG:4326",geom,precision=6)
-        except Exception: geom4326=geom
-        feats.append({"type":"Feature","properties":{"class":"candidate_forest_loss"},"geometry":geom4326})
+        try:
+            geom4326=transform_geom(crs,"EPSG:4326",geom,precision=6)
+        except Exception:
+            geom4326=geom
+        area_ha_component=None
+        try:
+            equal_area=transform_geom(crs,"EPSG:6933",geom,precision=3)
+            area_ha_component=round(float(shapely_shape(equal_area).area)/10000.0,4)
+        except Exception:
+            area_ha_component=None
+        feats.append({"type":"Feature","properties":{"class":"candidate_forest_loss","area_ha":area_ha_component},"geometry":geom4326})
         if len(feats)>=250: break
 
     mean_b=float(np.nanmean(ndvi_b[valid])) if valid_n else None

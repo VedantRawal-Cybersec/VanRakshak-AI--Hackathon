@@ -380,11 +380,16 @@ function renderProfile(p){
   const aspectDisplay=terrain.aspect_deg!=null?fmt(terrain.aspect_deg,0)+'°':'Unavailable';
   const aspectMeta=terrain.aspect_deg!=null?(terrain.method||terrain.source||availability.aspect?.source||'DEM-derived aspect'):(availability.aspect?.reason||'Aspect source unavailable');
   const carbonRef=evidence.carbon_reference||{};
-  const carbonDisplay=carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,1)+' tCO₂e':'Local carbon unavailable';
+  const carbonRange=Array.isArray(carbonRef.co2e_range_t)?carbonRef.co2e_range_t:null;
+  const carbonDisplay=carbon.estimated_co2e_t!=null
+    ?fmt(carbon.estimated_co2e_t,1)+' tCO₂e'
+    :carbonRange&&carbonRange.length===2
+      ?`Reference scenario ${fmt(carbonRange[0],1)}–${fmt(carbonRange[1],1)} tCO₂e`
+      :'Local carbon unavailable';
   const carbonMeta=carbon.estimated_co2e_t!=null
     ?`${carbon.density_source||carbon.estimate_class||'Location-specific mapped reference'} • selected-area estimate`
-    :carbonRef.estimated_co2e_t!=null
-      ?`IPCC regional context only: ${fmt(carbonRef.estimated_co2e_t,1)} tCO₂e • not a local measurement`
+    :carbonRange&&carbonRange.length===2
+      ?`${carbonRef.density_source||'IPCC Tier-1 biomass reference'} • broad regional scenario only, not a local measurement`
       :'No location-specific biomass/carbon source available';
   const humanDisplay=human.mapped_features!=null?String(human.mapped_features):'Unavailable';
   const humanMeta=human.source||p.provenance?.human_pressure?.source||'OpenStreetMap / Overpass';

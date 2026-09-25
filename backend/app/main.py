@@ -542,7 +542,51 @@ async def climate_anomaly_ep(lat: float, lon: float, window_days: int = Query(30
 
 @app.get("/api/satellite/latest", response_model=SourceResult)
 async def sat_ep(lat: float, lon: float, days: int = Query(30, ge=1, le=365), cloud_lt: float = Query(40, ge=0, le=100)):
-    return await wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon, days, cloud_lt), "DYNAMIC_RECENT", copernicus.source_url, 10)
+    """Return the newest real Sentinel-2 catalogue result through a labelled provider chain.
+
+    A transient catalogue outage must not turn "real satellite monitoring" into
+    either a fabricated value or a hard failure when another real STAC catalogue
+    contains the same class of Sentinel-2 L2A observations.
+    """
+    providers=[
+        ("Copernicus Sentinel-2 L2A STAC", lambda: copernicus.latest_sentinel2(lat,lon,days,cloud_lt), copernicus.source_url),
+        ("Element 84 Earth Search Sentinel-2 L2A", lambda: earth.latest_sentinel2(lat,lon,days,cloud_lt), earth.source_url),
+        ("Microsoft Planetary Computer Sentinel-2 L2A", lambda: pc.latest_sentinel2(lat,lon,days,cloud_lt), pc.source_url),
+    ]
+    failures=[]
+    for index,(name,factory,url) in enumerate(providers):
+        try:
+            data=await factory()
+            features=(data.get("features") or []) if isinstance(data,dict) else []
+            if not features:
+                failures.append(f"{name}: no matching scenes")
+                continue
+            first=features[0] if isinstance(features[0],dict) else {}
+            observed=((first.get("properties") or {}).get("datetime") if isinstance(first,dict) else None)
+            note=(
+                "Preferred Copernicus catalogue returned the scene."
+                if index==0 else
+                f"Real Sentinel-2 catalogue fallback used because earlier provider(s) were unavailable or returned no matching scene: {'; '.join(failures)}"
+            )
+            return SourceResult(
+                ok=True,
+                data=data,
+                provenance=prov(name,"DYNAMIC_RECENT",url,observed,notes=note,resolution_m=10),
+            )
+        except Exception as exc:
+            failures.append(f"{name}: {str(exc)[:140] or exc.__class__.__name__}")
+    return SourceResult(
+        ok=False,
+        data=None,
+        error="All real Sentinel-2 catalogue providers were unavailable or returned no matching scene.",
+        provenance=prov(
+            "Sentinel-2 real catalogue chain",
+            "DYNAMIC_RECENT",
+            None,
+            notes=" | ".join(failures)+" | No satellite value was fabricated.",
+            resolution_m=10,
+        ),
+    )
 
 
 @app.get("/api/satellite/sentinel1", response_model=SourceResult)

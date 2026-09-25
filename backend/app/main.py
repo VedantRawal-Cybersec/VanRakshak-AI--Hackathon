@@ -18,7 +18,7 @@ from app.adapters import (
     OpenMeteoAdapter, CopernicusAdapter, SoilGridsAdapter, OverpassAdapter,
     FIRMSAdapter, ProtectedPlanetAdapter, GDELTAdapter, GFWAdapter,
     EarthSearchAdapter, NominatimAdapter, EarthEngineAdapter, Sentinel1ASFAdapter, OSRMAdapter,
-    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter, METNorwayAdapter,
+    BhuvanAdapter, MOSDACAdapter, GIBSAdapter, EONETAdapter, PhotonAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter, METNorwayAdapter, USGSLandsatAdapter, GCPLandsatAdapter,
 )
 from app.adapters.base import AdapterError
 from app.services.layers import LAYER_GROUPS, FEATURES
@@ -34,7 +34,7 @@ from app.services.raster_analysis import ndvi_change, RasterInputError
 from app.services.fragmentation import metrics as fragmentation_metrics, FragmentationInputError
 from app.services.prediction import predict as predict_threat
 from app.services.climate import anomaly as climate_anomaly
-from app.services import historical_imagery
+from app.services import historical_imagery\nfrom app.services.historical_landsat_tiles import render_png as render_historical_landsat_png, HistoricalTileError
 from app.services.tiles import satellite_layer, compare_layers, gfw_layer
 from app.services.remote_change import analyze as remote_change_analyze, RemoteChangeError, scene_summary, recovery_from_series
 from app.services.sar_change import analyze as sar_change_analyze, SARChangeError
@@ -81,7 +81,7 @@ weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGrids
 overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
 gdelt = GDELTAdapter(); gfw = GFWAdapter(); earth = EarthSearchAdapter()
 geocoder = NominatimAdapter(); photon = PhotonAdapter(); ee = EarthEngineAdapter(); s1 = Sentinel1ASFAdapter(); osrm = OSRMAdapter()
-bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter(); pc = PlanetaryComputerAdapter(); gnews = GoogleNewsRSSAdapter(); metno = METNorwayAdapter()
+bhuvan = BhuvanAdapter(); mosdac = MOSDACAdapter(); gibs = GIBSAdapter(); eonet = EONETAdapter(); power = NASAPowerAdapter(); pc = PlanetaryComputerAdapter(); gnews = GoogleNewsRSSAdapter(); metno = METNorwayAdapter(); usgs_landsat = USGSLandsatAdapter(); gcp_landsat = GCPLandsatAdapter()
 
 
 def prov(source, freshness="UNKNOWN", url=None, observed_at=None, notes=None, resolution_m=None):
@@ -577,8 +577,19 @@ async def map_satellite_layer(
         raise HTTPException(422,"start_date/end_date must use YYYY-MM-DD and start must be before end")
     primary_error=None
     try:
-        if end_dt and end_dt < historical_imagery.SENTINEL_START:
-            raise AdapterError("Historical date requires the Landsat archive")
+        if end_dt and end_dt <= historical_imagery.SENTINEL_START:
+            target=(end_dt-timedelta(days=1))
+            if start_dt:
+                target=start_dt+(end_dt-start_dt)/2
+            result=await historical_imagery.dated_scene(
+                earth,pc,lat,lon,target,mode,max(35,min(days,365)),cloud_lt,usgs_landsat,gcp_landsat
+            )
+            if not result:
+                raise AdapterError("No historical Landsat observation was found near the selected date range")
+            result["fallback_used"]=False
+            result["provider_chain"]=["USGS Landsat STAC","Google public Landsat mirror"]
+            result["filter_note"]="Historical archive uses the nearest available real Landsat capture and reports its actual observation date."
+            return result
         result=await satellite_layer(earth, lat, lon, mode, days, cloud_lt, start_dt, end_dt)
         result["fallback_used"]=False
         result["provider_chain"]=["Earth Search","TiTiler"]
@@ -708,6 +719,24 @@ async def satellite_modes_status(
     }
 
 
+
+@app.get("/api/historical/landsat-tile/{product_id}/{mode}/{z}/{x}/{y}.png")
+async def historical_landsat_tile(product_id: str, mode: str, z: int, x: int, y: int):
+    if mode not in {"true_color","false_color","ndvi","ndmi","nbr","ndwi"}:
+        raise HTTPException(422,"Unsupported historical Landsat mode")
+    if z < 0 or z > 14:
+        raise HTTPException(422,"Historical Landsat zoom must be between 0 and 14")
+    try:
+        metadata=await gcp_landsat.metadata(product_id)
+        urls=gcp_landsat.asset_urls(product_id)
+        png=await asyncio.to_thread(render_historical_landsat_png,urls,metadata,mode,z,x,y)
+        return Response(
+            content=png,media_type="image/png",
+            headers={"Cache-Control":"public, max-age=86400, stale-while-revalidate=604800"},
+        )
+    except HistoricalTileError as exc:
+        raise HTTPException(502,str(exc))
+
 @app.get("/api/map/compare")
 async def map_compare(
     lat: float, lon: float, before_date: str, after_date: str,
@@ -720,7 +749,7 @@ async def map_compare(
     except Exception:
         raise HTTPException(422, "Dates must use YYYY-MM-DD")
     try:
-        result = await historical_imagery.compare(earth, pc, lat, lon, b, a, mode, window_days, cloud_lt)
+        result = await historical_imagery.compare(earth, pc, lat, lon, b, a, mode, window_days, cloud_lt, usgs_landsat, gcp_landsat)
         if result is None:
             raise HTTPException(404, "No cloud-filtered scene found near one or both dates. Widen the date window or cloud threshold.")
         return result
@@ -739,7 +768,7 @@ async def time_machine(
     except Exception:
         raise HTTPException(422, "start/end must use YYYY-MM-DD")
     try:
-        return await historical_imagery.timeline(earth, pc, lat, lon, s, e, cloud_lt, limit)
+        return await historical_imagery.timeline(earth, pc, lat, lon, s, e, cloud_lt, limit, usgs_landsat, gcp_landsat)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
 

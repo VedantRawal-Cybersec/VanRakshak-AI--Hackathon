@@ -66,7 +66,7 @@ test('Kodagu matched Sentinel-1 SAR analysis computes on production', async ({ r
   });
   const res=await request.get('/api/analysis/sar-change?'+q.toString(),{timeout:220000});
   const sarText=await res.text();
-  console.log('SAR_STATUS',res.status(),'SAR_BODY',sarText);
+  console.log('SAR_STATUS',res.status(),'SAR_BODY',sarText.slice(0,1500));
   expect(res.ok(),sarText).toBeTruthy();
   const body=JSON.parse(sarText);
   expect(body.valid_pixels).toBeGreaterThan(50);
@@ -74,7 +74,6 @@ test('Kodagu matched Sentinel-1 SAR analysis computes on production', async ({ r
   expect(body.after?.id).toBeTruthy();
   expect(body.method).toMatch(/Sentinel-1/i);
 });
-
 
 function tileXY(lat,lon,z){
   const n=2**z;
@@ -86,22 +85,21 @@ function tileXY(lat,lon,z){
 
 function renderedTileUrl(template,lat,lon,z=9){
   const {x,y}=tileXY(lat,lon,z);
-  return template
-    .replaceAll('{z}',String(z))
-    .replaceAll('{x}',String(x))
-    .replaceAll('{y}',String(y));
+  return template.replaceAll('{z}',String(z)).replaceAll('{x}',String(x)).replaceAll('{y}',String(y));
 }
 
-function expectHistoricalObservation(observedAt,requestedDate,windowDays=90){
-  expect(observedAt).toBeTruthy();
-  const observed=Date.parse(observedAt);
+function expectHistoricalObservation(scene,requestedDate,maxDays=550){
+  expect(scene?.requested_date).toBe(requestedDate);
+  expect(scene?.observed_at).toBeTruthy();
+  const observed=Date.parse(scene.observed_at);
   const requested=Date.parse(requestedDate+'T00:00:00Z');
   expect(Number.isFinite(observed)).toBeTruthy();
-  expect(Math.abs(observed-requested)).toBeLessThanOrEqual((windowDays+2)*86400000);
+  expect(Math.abs(observed-requested)).toBeLessThanOrEqual((maxDays+2)*86400000);
+  expect(Number(scene.date_offset_days)).toBeGreaterThanOrEqual(0);
 }
 
 test('historical Landsat before-after comparisons render real tiles', async ({ request }) => {
-  test.setTimeout(360000);
+  test.setTimeout(600000);
   const lat=12.3375,lon=75.8069;
   const cases=[
     {before:'1987-06-01',after:'2001-06-01',mode:'true_color'},
@@ -109,73 +107,14 @@ test('historical Landsat before-after comparisons render real tiles', async ({ r
   ];
 
   for(const row of cases){
-    const providerPayload={
-      collections:['landsat-c2-l2'],
-      intersects:{type:'Point',coordinates:[lon,lat]},
-      datetime:`${new Date(Date.parse(row.before+'T00:00:00Z')-90*86400000).toISOString()}/${new Date(Date.parse(row.before+'T00:00:00Z')+91*86400000).toISOString()}`,
-      query:{'eo:cloud_cover':{lte:100}},
-      limit:5
-    };
-    const direct=await request.post('https://planetarycomputer.microsoft.com/api/stac/v1/search',{data:providerPayload,timeout:120000});
-    const directText=await direct.text();
-    console.log('PC_DIRECT_POINT',row.before,direct.status(),directText.slice(0,1600));
-    const broad=await request.post('https://planetarycomputer.microsoft.com/api/stac/v1/search',{data:{
-      collections:['landsat-c2-l2'],
-      bbox:[lon-0.2,lat-0.2,lon+0.2,lat+0.2],
-      datetime:providerPayload.datetime,
-      limit:5
-    },timeout:120000});
-    const broadText=await broad.text();
-    console.log('PC_DIRECT_BBOX',row.before,broad.status(),broadText.slice(0,1600));
-
-    const earth=await request.post('https://earth-search.aws.element84.com/v1/search',{data:{
-      collections:['landsat-c2-l2'],
-      intersects:{type:'Point',coordinates:[lon,lat]},
-      datetime:providerPayload.datetime,
-      query:{'eo:cloud_cover':{lte:100}},
-      limit:3
-    },timeout:120000});
-    const earthText=await earth.text();
-    console.log('EARTH_SEARCH_LANDSAT',row.before,earth.status(),earthText.slice(0,6000));
-
-    const usgs=await request.post('https://landsatlook.usgs.gov/stac-server/search',{data:{
-      collections:['landsat-c2l2-sr'],
-      intersects:{type:'Point',coordinates:[lon,lat]},
-      datetime:providerPayload.datetime,
-      limit:3
-    },timeout:120000});
-    const usgsText=await usgs.text();
-    console.log('USGS_LANDSAT_POINT',row.before,usgs.status(),usgsText.slice(0,7000));
-    const usgsBox=await request.post('https://landsatlook.usgs.gov/stac-server/search',{data:{
-      collections:['landsat-c2l2-sr'],
-      bbox:[lon-0.5,lat-0.5,lon+0.5,lat+0.5],
-      datetime:providerPayload.datetime,
-      limit:3
-    },timeout:120000});
-    const usgsBoxText=await usgsBox.text();
-    console.log('USGS_LANDSAT_BBOX',row.before,usgsBox.status(),usgsBoxText.slice(0,7000));
-
-    if(row.before.startsWith('1987')){
-      for(const pr of ['145051','145052','144051','144052']){
-        for(const year of ['1987','1986','1988']){
-          const path=pr.slice(0,3),wr=pr.slice(3);
-          const prefix=`LT05/01/${path}/${wr}/LT05_L1TP_${pr}_${year}`;
-          const listUrl='https://storage.googleapis.com/storage/v1/b/gcp-public-data-landsat/o?maxResults=20&prefix='+encodeURIComponent(prefix);
-          const gcs=await request.get(listUrl,{timeout:120000});
-          const gcsText=await gcs.text();
-          console.log('GCP_LANDSAT_LIST',pr,year,gcs.status(),gcsText.slice(0,3500));
-        }
-      }
-    }
-
     const q=new URLSearchParams({
       lat:String(lat),lon:String(lon),
       before_date:row.before,after_date:row.after,
       mode:row.mode,window_days:'90',cloud_lt:'100'
     });
-    const res=await request.get('/api/map/compare?'+q.toString(),{timeout:150000});
+    const res=await request.get('/api/map/compare?'+q.toString(),{timeout:240000});
     const text=await res.text();
-    console.log('HISTORICAL_COMPARE',row,text.slice(0,1200));
+    console.log('HISTORICAL_COMPARE',row,text.slice(0,1600));
     expect(res.ok(),text).toBeTruthy();
 
     const body=JSON.parse(text);
@@ -184,13 +123,13 @@ test('historical Landsat before-after comparisons render real tiles', async ({ r
       expect(scene?.item_id).toBeTruthy();
       expect(scene?.source).toMatch(/Landsat/i);
       expect(scene?.tile_url).toBeTruthy();
-      expectHistoricalObservation(scene.observed_at,requested,90);
+      expectHistoricalObservation(scene,requested,550);
 
       const tileUrl=renderedTileUrl(scene.tile_url,lat,lon,9);
-      const tile=await request.get(tileUrl,{timeout:120000});
+      const tile=await request.get(tileUrl,{timeout:240000});
       const tileText=tile.ok()?'':await tile.text();
       expect(tile.ok(),`${side} ${requested} tile failed: ${tile.status()} ${tileText.slice(0,500)}`).toBeTruthy();
-      expect(tile.headers()['content-type']||'').toMatch(/image\/(png|jpeg|webp)/i);
+      expect(tile.headers()['content-type']||'').toMatch(/image\/png/i);
       expect((await tile.body()).length).toBeGreaterThan(100);
     }
   }

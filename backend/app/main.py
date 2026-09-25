@@ -43,6 +43,7 @@ from app.services.evidence import build_chain, partial_risk, pressure_context
 from app.services.model_runtime import status as change_model_status
 from app.services.feature_status import FEATURE_CAPABILITIES
 from app.services.source_health import snapshot as source_health_snapshot
+from app.services.alerts import compose_patrol_alert
 from app.services.cache import cached_async, cache_stats, clear_cache_async, redis_ping
 from app.services.fallbacks import (
     geocode_search as fallback_geocode_search,
@@ -1531,6 +1532,21 @@ async def live_patrol_ep(
     for stop in (routed.get("ordering") or {}).get("route") or []:
         stop["candidate_context"]=contexts.get(stop.get("id"))
     return {**routed,"analysis":{"hotspots_used":len(points),"candidate_polygon_count":len(features),"candidate_area_ha":change.get("candidate_area_ha"),"screening_confidence":change.get("screening_confidence"),"warning_score":base_priority,"before_scene":(change.get("before") or {}).get("id"),"after_scene":(change.get("after") or {}).get("id"),"before_observed_at":(change.get("before") or {}).get("datetime"),"after_observed_at":(change.get("after") or {}).get("datetime")},"pipeline":["Run Sentinel-2 before/after multispectral change screening","Convert candidate-change polygons into patrol hotspot centroids","Assign evidence-based patrol priorities from warning/confidence signals","Request OSRM road travel-time matrix and order stops by travel cost + priority","Request final OSM road geometry, ETA, route legs and turn guidance"],"candidate_source":"Sentinel-2 before/after candidate-change polygons","generated_at":datetime.now(timezone.utc).isoformat(),"label":"DERIVED_FROM_REAL_DATA","warning":"Routing uses mapped OSM roads/tracks where available. Candidate polygons are screening evidence, not proof of deforestation; field accessibility and safety must be verified."}
+
+
+@app.get("/api/alerts/compose")
+async def compose_alert_ep(
+    lat: float, lon: float, place: str="India",
+    before_date: str | None=None, after_date: str | None=None,
+):
+    if not before_date or not after_date:
+        raise HTTPException(422,"before_date and after_date are required to compose a source-backed patrol alert")
+    bundle=await evidence_chain_ep(lat,lon,place,before_date,after_date,2.0,60)
+    digits=str(abs(int(round(lat*100)))+abs(int(round(lon*100)))).zfill(4)[-4:]
+    incident_id=f"VR-{datetime.now(timezone.utc).year}-{digits}"
+    alert=compose_patrol_alert(bundle,lat,lon,place,incident_id)
+    alert["evidence_chain"]=bundle.get("evidence_chain")
+    return alert
 
 
 @app.post("/api/intelligence/compare-live")

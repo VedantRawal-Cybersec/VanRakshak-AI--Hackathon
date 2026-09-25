@@ -13,7 +13,7 @@ class OSRMAdapter(BaseAdapter):
     async def table(self,points:list[tuple[float,float]]):
         if len(points)<2: raise AdapterError("At least two points are required")
         url=f"{settings.osrm_url.rstrip('/')}/table/v1/driving/{self._coords(points)}"
-        data=await self.get_json(url,params={"annotations":"duration,distance"})
+        data=await self.get_json(url,params={"annotations":"duration,distance","radiuses":";".join(["5000"]*len(points))})
         if data.get("code") not in {None,"Ok"}: raise AdapterError(data.get("message") or "OSRM table request failed")
         if not data.get("durations"): raise AdapterError("OSRM returned no travel-time matrix")
         return {"durations":data["durations"],"distances":data.get("distances"),"source":"OSRM/OpenStreetMap"}
@@ -27,7 +27,7 @@ class OSRMAdapter(BaseAdapter):
     async def route(self,points:list[tuple[float,float]]):
         if len(points)<2: raise AdapterError("At least two points are required")
         url=f"{settings.osrm_url.rstrip('/')}/route/v1/driving/{self._coords(points)}"
-        data=await self.get_json(url,params={"overview":"full","geometries":"geojson","steps":"true","annotations":"false"})
+        data=await self.get_json(url,params={"overview":"full","geometries":"geojson","steps":"true","annotations":"false","radiuses":";".join(["5000"]*len(points))})
         routes=data.get("routes") or []
         if not routes: raise AdapterError(data.get("message") or "OSRM returned no route")
         r=routes[0]; legs=[]

@@ -6,6 +6,11 @@ function json(route, body, status=200){
 
 test('all explicit dashboard buttons can be dispatched without page errors', async ({ page }) => {
   const fatal=[];
+  await page.addInitScript(() => {
+    window.open=()=>null;
+    try{Object.defineProperty(navigator,'share',{value:async()=>{},configurable:true})}catch{}
+    try{Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{}},configurable:true})}catch{}
+  });
   page.on('pageerror', e=>fatal.push(String(e)));
 
   await page.route('**/api/**', async route => {
@@ -48,6 +53,17 @@ test('all explicit dashboard buttons can be dispatched without page errors', asy
     if(p==='/api/intelligence/predict') return json(route,{projection:[]});
     if(p==='/api/intelligence/predict-location') return json(route,{historical_risk_proxy:[8,12,18],dates:['2025-11-06','2026-01-01','2026-02-04'],analysis:{current_risk_index:18,interpretation:'Screening risk is rising.',observation_count:3},projection:{projected_values:[22,25],forecast_dates:['2026-03-01','2026-04-01'],lower:[18,19],upper:[26,31],trend_per_step:4,analysis:{direction:'INCREASING',strength:'MODERATE',confidence_pct:78,forecast_final:25,risk_level:'MODERATE',observations:3},pipeline:['Fit robust trends']},pipeline:['Read Sentinel-2 scenes'],generated_at:'2026-09-25T04:00:00Z',source_series:[]});
     if(p==='/api/intelligence/what-if') return json(route,{baseline:{},scenario:{}});
+    if(p==='/api/alerts/compose') return json(route,{
+      incident_id:'VR-2026-TEST',subject:'[HIGH] VanRakshak patrol alert — Kodagu',
+      severity:'HIGH',warning_score:77,
+      location:{place:'Kodagu Forest Region',lat:12.3375,lon:75.8069,map_url:'https://www.google.com/maps?q=12.3375,75.8069'},
+      detected_period:{before:'2025-11-06',after:'2026-02-04'},
+      change:{candidate_area_ha:2.4,candidate_polygons:3,mean_ndvi_change:-.12,screening_confidence:.84},
+      probable_drivers:[{driver:'Road-access pressure',support_pct:63},{driver:'Vegetation disturbance',support_pct:51}],
+      top_patrol_target:{lat:12.35,lon:75.82,area_ha:1.8,map_url:'https://www.google.com/maps?q=12.35,75.82'},
+      message:'🚨 VANRAKSHAK AI — PATROL ALERT\nIncident: VR-2026-TEST\nWHERE: Kodagu Forest Region | 12.337500, 75.806900\nWHAT WAS DETECTED: 2.40 ha candidate vegetation/forest change.\nWHEN: satellite comparison 2025-11-06 → 2026-02-04.\nHOW IT MAY BE HAPPENING: Road-access pressure (63% relative support)\nPATROL FIRST PRIORITY: 12.350000, 75.820000\nIMPORTANT: Satellite screening identifies candidate change, not proof of illegal deforestation or a confirmed cause.',
+      generated_at:'2026-09-25T04:00:00Z'
+    });
     if(p==='/api/patrol/road-route'||p==='/api/patrol/live') return json(route,{status:'ROAD_ROUTE_READY',analysis:{candidate_area_ha:2.4,screening_confidence:.84,warning_score:77,before_observed_at:'2025-11-06T00:00:00Z',after_observed_at:'2026-02-04T00:00:00Z'},ordering:{ordering_mode:'ROAD_TIME_PRIORITY',route:[{order:1,id:'hotspot-1',lat:12.35,lon:75.82,priority:90,priority_band:'CRITICAL',candidate_context:{area_ha:1.8},why_selected:'Critical priority balanced against road travel time.'}]},road_route:{distance_km:4.2,duration_min:11,source:'OSRM/OpenStreetMap',geometry:{type:'LineString',coordinates:[[75.8069,12.3375],[75.82,12.35]]},legs:[{steps:[{instruction:'Continue on Forest Road',distance_m:900,duration_min:2.4}]}]}});
     if(p.startsWith('/api/report')) return route.fulfill({status:200,contentType:'application/pdf',body:'%PDF-1.4\n%%EOF'});
     return json(route,{ok:true,data:{},features:[],groups:[],scenes:[]});
@@ -65,6 +81,16 @@ test('all explicit dashboard buttons can be dispatched without page errors', asy
     await el.evaluate(node=>node.click());
     await page.waitForTimeout(35);
   }
+
+  await page.locator('[data-nav="alerts"]').evaluate(node=>node.click());
+  await expect(page.locator('#alertModal')).toBeVisible();
+  await expect(page.locator('#alertMessage')).toContainText('WHERE: Kodagu Forest Region');
+  await expect(page.locator('#alertMessage')).toContainText('WHAT WAS DETECTED');
+  await expect(page.locator('#alertMessage')).toContainText('HOW IT MAY BE HAPPENING');
+  await expect(page.locator('#alertMessage')).toContainText('PATROL FIRST PRIORITY');
+  await page.locator('#attachAlertPatrol').evaluate(node=>node.click());
+  await expect(page.locator('#alertMessage')).toContainText('PATROL ROUTE');
+  await page.locator('#closeAlert').evaluate(node=>node.click());
 
   await page.locator('[data-nav="predictions"]').evaluate(node=>node.click());
   await page.locator('#runLocationPrediction').evaluate(node=>node.click());

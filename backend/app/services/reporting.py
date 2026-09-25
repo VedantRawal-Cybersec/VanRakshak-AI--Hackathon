@@ -57,8 +57,31 @@ def investigation_pdf(data: dict) -> bytes:
         story += [Paragraph(str(change.get("warning") or ""),styles["Muted"])]
 
     carbon=data.get("carbon")
+    carbon_reference=data.get("carbon_reference")
     if carbon:
-        story += [Paragraph("Carbon impact estimate",styles["Section"]), _table([[k,str(v)] for k,v in carbon.items() if k!="label"])]
+        story += [Paragraph("Location-specific mapped carbon impact",styles["Section"]), _table([[k,str(v)] for k,v in carbon.items() if k!="label"])]
+    elif carbon_reference:
+        story += [
+            Paragraph("Carbon reference context — not a local measurement",styles["Section"]),
+            _table([[k,str(v)] for k,v in carbon_reference.items() if k!="label"]),
+            Paragraph("This broad reference is kept separate from selected-area carbon impact and must not be presented as a local biomass measurement.",styles["Muted"]),
+        ]
+
+    action_plan=data.get("action_plan") or {}
+    actions=action_plan.get("actions") or []
+    if actions:
+        arows=[["Priority","What","Where","How","Expected impact"]]
+        for x in actions[:8]:
+            arows.append([
+                str(x.get("priority") or ""),
+                str(x.get("what") or ""),
+                str(x.get("where") or ""),
+                str(x.get("how") or ""),
+                str(x.get("expected_impact") or ""),
+            ])
+        story += [Paragraph("Recommended response plan",styles["Section"]),_table(arows,header=True)]
+        if action_plan.get("expected_outcome"):
+            story += [Paragraph(str(action_plan.get("expected_outcome")),styles["Muted"])]
 
     doctor=data.get("forest_doctor") or {}
     if doctor:
@@ -70,6 +93,23 @@ def investigation_pdf(data: dict) -> bytes:
         story += [PageBreak(),Paragraph("Evidence chain",styles["Section"])]
         erows=[["Class","Source","Evidence"]]+[[x.get("kind",""),x.get("source",""),x.get("statement","")] for x in chain]
         story += [_table(erows,header=True)]
+
+    sources=data.get("sources") or {}
+    if sources:
+        prows=[["Source","Status","Freshness","Observed / fetched","Notes"]]
+        for key,row in sources.items():
+            if not isinstance(row,dict):
+                continue
+            prov=row.get("provenance") or {}
+            source=prov.get("source") or str(key)
+            status="AVAILABLE" if row.get("ok") is True and row.get("data") is not None else "UNAVAILABLE"
+            freshness=prov.get("freshness") or ""
+            observed=prov.get("observed_at") or prov.get("fetched_at") or ""
+            notes=prov.get("notes") or row.get("error") or ""
+            prows.append([str(source),status,str(freshness),str(observed),str(notes)[:220]])
+        if len(prows)>1:
+            story += [Paragraph("Real data provenance",styles["Section"]),_table(prows,header=True)]
+            story += [Paragraph("Data-integrity rule: unavailable providers remain unavailable; no environmental value is fabricated. Derived, forecast and scenario outputs are explicitly labelled.",styles["Muted"])]
 
     if data.get("summary_lines"):
         story += [Paragraph("Summary",styles["Section"])]

@@ -1537,7 +1537,40 @@ async def evidence_chain_ep(
         doctor["human_pressure_context"]=pctx
         doctor["radar_scene_available"]=radar_available
         doctor["fragmentation_change"]=fchg
-    bundle={"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"carbon_reference":carbon_reference,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
+    optical_fraction=(change or {}).get("candidate_fraction") if change else None
+    anomaly_overlap=((change or {}).get("ml_corroboration") or {}).get("candidate_overlap_fraction") if change else None
+    sar_fraction=(sar_change or {}).get("candidate_fraction") if sar_change else None
+    if optical_fraction is not None and sar_fraction is not None:
+        optical_signal=float(optical_fraction)>0
+        sar_signal=float(sar_fraction)>0
+        cross_sensor_status="BOTH_SENSORS_SIGNAL" if optical_signal and sar_signal else "NO_SIGNAL_ON_BOTH" if (not optical_signal and not sar_signal) else "MIXED_SENSOR_SIGNAL"
+    else:
+        cross_sensor_status="SAR_NOT_AVAILABLE"
+    model_quality={
+        "change_detection":{
+            "valid_pixels":(change or {}).get("valid_pixels"),
+            "cloud_masked_fraction":(change or {}).get("cloud_masked_fraction"),
+            "screening_confidence":(change or {}).get("screening_confidence"),
+            "isolation_forest_candidate_overlap_fraction":anomaly_overlap,
+            "method":(change or {}).get("method"),
+        },
+        "cross_sensor_validation":{
+            "status":cross_sensor_status,
+            "optical_candidate_fraction":optical_fraction,
+            "sentinel1_candidate_fraction":sar_fraction,
+            "sentinel1_screening_confidence":(sar_change or {}).get("screening_confidence") if sar_change else None,
+            "sentinel1_valid_pixels":(sar_change or {}).get("valid_pixels") if sar_change else None,
+            "note":"Sentinel-1 is an independent sensor corroboration check. Agreement/disagreement is evidence consistency, not classification accuracy or ground truth.",
+        },
+        "ground_truth_classification_metrics":{
+            "available":False,
+            "precision":None,"recall":None,"f1":None,"iou":None,
+            "note":"No labelled geographic ground-truth benchmark is configured, so VanRakshak does not invent Precision/Recall/F1/IoU.",
+        },
+        "data_integrity_rule":"Quality metrics are computed only from real source observations or transparent derived comparisons. Missing validation evidence remains unavailable.",
+    }
+
+    bundle={"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"carbon_reference":carbon_reference,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"model_quality":model_quality,"sources":sources}
     live_inputs=_live_risk_inputs(bundle,lat,lon)
     bundle["action_plan"]=_action_plan_from_evidence(bundle,live_inputs,lat,lon)
     return bundle

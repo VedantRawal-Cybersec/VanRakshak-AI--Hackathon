@@ -560,7 +560,7 @@ function renderAnalysisIntelligence(){
     analysisValue('Tree probability',treeProb!=null?pct(treeProb,1):'—','Dynamic World / enhancement'),
     analysisValue('Candidate affected area',candidateArea!=null?`${fmt(candidateArea,2)} ha`:'—',confidence!=null?`Screening confidence ${pct(confidence,0)}`:'Satellite screening'),
     analysisValue('Biomass reference',forest.gedi_agbd_mg_per_ha!=null?`${fmt(forest.gedi_agbd_mg_per_ha,1)} Mg/ha`:'—','GEDI enhancement'),
-    analysisValue('Terrain',terrain.elevation_m!=null?`${fmt(terrain.elevation_m,0)} m elevation`:'—',terrain.slope_deg!=null?`Slope ${fmt(terrain.slope_deg,1)}°`:'Slope unavailable'),
+    analysisValue('Terrain',terrain.elevation_m!=null?`${fmt(terrain.elevation_m,0)} m elevation`:'—',terrain.slope_deg!=null?`Slope ${fmt(terrain.slope_deg,1)}° • Aspect ${terrain.aspect_deg!=null?fmt(terrain.aspect_deg,0)+'°':'—'} • ${terrain.source||'DEM-derived terrain'}`:'Real terrain unavailable'),
     analysisValue('Fire context',fireCount!=null?`${fireCount} returned points`:'—',fireSource.provenance?.source||'Fire provider'),
     analysisValue('Human pressure',human.mapped_features!=null?`${human.mapped_features} mapped features`:'—','Road / settlement / quarry context'),
     analysisValue('Protected-area context',protectedText,sources.protected_area?.provenance?.source||'Conservation context'),

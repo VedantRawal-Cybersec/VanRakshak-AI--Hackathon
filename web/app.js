@@ -303,12 +303,21 @@ function predictionMetric(label,value,sub=''){return `<article class="metric-car
 function renderPredictionResult(d,useLocation){
   const p=d.projection||d,a=p.analysis||{},observed=d.historical_risk_proxy||[],dates=d.dates||[],forecast=p.projected_values||[],future=p.forecast_dates||forecast.map((_,i)=>`Next ${i+1}`);
   const current=useLocation?(d.analysis?.current_risk_index??observed.at(-1)):a.latest_value;
-  $('predictionSummary').innerHTML=[
+  const predictionMetrics=[
     predictionMetric('Current index',fmt(current,1),useLocation?'satellite-derived':'series value'),
     predictionMetric('Forecast',fmt(a.forecast_final,1),a.risk_level||''),
     predictionMetric('Trend',a.direction||'—',`${a.strength||''} • ${fmt(p.trend_per_step,2)}/step`),
     predictionMetric('Confidence',a.confidence_pct!=null?`${fmt(a.confidence_pct,0)}%`:'—',`${a.observations||observed.length} observations`)
-  ].join('');
+  ];
+  if(useLocation&&d.analysis){
+    predictionMetrics.push(
+      predictionMetric('NDVI change',fmt(d.analysis.ndvi_change_first_to_latest,3),'first → latest'),
+      predictionMetric('Forest fraction Δ',pct(d.analysis.forest_fraction_change_first_to_latest,1),'first → latest'),
+      predictionMetric('Optical quality',d.analysis.optical_quality_pct!=null?`${fmt(d.analysis.optical_quality_pct,0)}%`:'—','after cloud masking'),
+      predictionMetric('Latest scene',d.analysis.latest_observation||'—',`${d.analysis.scene_read_errors||0} read errors`)
+    );
+  }
+  $('predictionSummary').innerHTML=predictionMetrics.join('');
   const pipeline=[...(d.pipeline||[]),...(p.pipeline||[])];
   $('predictionUpdates').innerHTML=pipeline.map((x,i)=>`<div class="update-row"><b>${i+1}</b><span>${esc(x)}</span></div>`).join('');
   $('predictionResult').textContent=JSON.stringify(d,null,2);
@@ -346,7 +355,16 @@ function openPatrol(){if(!ensureLocation())return;$('patrolModal').classList.rem
 function fitLineGeometry(geometry){const coords=geometry?.coordinates||[];if(!coords.length)return;let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;for(const c of coords){if(!Array.isArray(c)||c.length<2)continue;minX=Math.min(minX,c[0]);maxX=Math.max(maxX,c[0]);minY=Math.min(minY,c[1]);maxY=Math.max(maxY,c[1])}if(Number.isFinite(minX))map.fitBounds([[minX,minY],[maxX,maxY]],{padding:70,maxZoom:13,duration:700})}
 function renderPatrolResult(d,useDetected){
   const o=d.ordering||{},route=o.route||[],road=d.road_route||{};
-  $('patrolMetrics').innerHTML=[predictionMetric('Stops',String(route.length),useDetected?'detected hotspots':'entered targets'),predictionMetric('Road distance',road.distance_km!=null?`${fmt(road.distance_km,1)} km`:'Unavailable',o.ordering_mode||''),predictionMetric('ETA',road.duration_min!=null?`${fmt(road.duration_min,0)} min`:'—',road.source||'fallback ordering'),predictionMetric('Mode',d.status||'—',o.ordering_mode||'')].join('');
+  const patrolMetrics=[predictionMetric('Stops',String(route.length),useDetected?'detected hotspots':'entered targets'),predictionMetric('Road distance',road.distance_km!=null?`${fmt(road.distance_km,1)} km`:'Unavailable',o.ordering_mode||''),predictionMetric('ETA',road.duration_min!=null?`${fmt(road.duration_min,0)} min`:'—',road.source||'fallback ordering'),predictionMetric('Mode',d.status||'—',o.ordering_mode||'')];
+  if(useDetected&&d.analysis){
+    patrolMetrics.push(
+      predictionMetric('Candidate area',d.analysis.candidate_area_ha!=null?`${fmt(d.analysis.candidate_area_ha,2)} ha`:'—','screened change'),
+      predictionMetric('Screen confidence',d.analysis.screening_confidence!=null?pct(d.analysis.screening_confidence,0):'—','multispectral'),
+      predictionMetric('Warning score',fmt(d.analysis.warning_score,0),'/ 100'),
+      predictionMetric('Scene period',String(d.analysis.before_observed_at||'').slice(0,10)||'—',`→ ${String(d.analysis.after_observed_at||'').slice(0,10)||'—'}`)
+    );
+  }
+  $('patrolMetrics').innerHTML=patrolMetrics.join('');
   $('patrolStops').innerHTML=route.map((s,i)=>`<article class="route-stop"><b>${i+1}</b><div><strong>${esc(s.id)}</strong><small>${fmt(s.lat,5)}, ${fmt(s.lon,5)} • priority ${fmt(s.priority,0)}/100 (${esc(s.priority_band||'')})</small><em>${esc(s.why_selected||'')}</em></div></article>`).join('')||'<div class="empty-state">No patrol stops returned.</div>';
   const steps=(road.legs||[]).flatMap((leg,li)=>(leg.steps||[]).slice(0,8).map(x=>({...x,leg:li+1})));
   $('patrolInstructions').innerHTML=steps.length?`<h3>Road Guidance</h3>${steps.map(x=>`<div class="route-step"><b>L${x.leg}</b><span>${esc(x.instruction)} <small>${fmt(x.distance_m,0)} m • ${fmt(x.duration_min,1)} min</small></span></div>`).join('')}`:'<div class="drawer-note">No turn guidance returned. The ordered stops remain available, but straight lines must not be treated as roads.</div>';

@@ -136,11 +136,11 @@ class GCPLandsatAdapter(BaseAdapter):
         paths=self.wrs2_candidates(lat,lon)
         if not paths:
             return []
-        start=(target-timedelta(days=max_window_days)).year
-        end=(target+timedelta(days=max_window_days)).year
-        years=sorted(range(start,end+1),key=lambda y:abs(y-target.year))
+        start_year=(target-timedelta(days=max_window_days)).year
+        end_year=(target+timedelta(days=max_window_days)).year
+        years=sorted(range(start_year,end_year+1),key=lambda y:abs(y-target.year))
         missions=self._missions_for(target)
-        semaphore=asyncio.Semaphore(8)
+        semaphore=asyncio.Semaphore(6)
 
         async def fetch(mission,path,row,year,level):
             async with semaphore:
@@ -149,17 +149,8 @@ class GCPLandsatAdapter(BaseAdapter):
                 except AdapterError:
                     return []
 
-        # Precision-terrain Tier products are overwhelmingly preferred. Only
-        # expand to systematic products if the precision search is empty.
-        products=[]
-        for level in ("L1TP","L1GT","L1GS"):
-            batches=await asyncio.gather(*(
-                fetch(mission,path,row,year,level)
-                for mission in missions
-                for path,row in paths
-                for year in years
-            ))
-            seen=set()
+        def normalize(batches):
+            rows=[]; seen=set()
             for batch in batches:
                 for product in batch:
                     if product in seen:
@@ -172,10 +163,36 @@ class GCPLandsatAdapter(BaseAdapter):
                         continue
                     delta=abs((observed-target).total_seconds())/86400.0
                     if delta <= max_window_days+1:
-                        products.append((delta,product))
+                        rows.append((delta,product))
+            return sorted(rows,key=lambda row:(row[0],0 if row[1].endswith("_T1") else 1,row[1]))
+
+        # Fast path: primary mission, centre/cross WRS neighbours and the three
+        # closest calendar years. This is enough for the verified Kodagu 1988
+        # overlap and avoids a burst of dozens of public-bucket list requests.
+        fast_paths=paths[:5]
+        fast_years=years[:3]
+        batches=await asyncio.gather(*(
+            fetch(missions[0],path,row,year,"L1TP")
+            for path,row in fast_paths
+            for year in fast_years
+        ))
+        products=normalize(batches)
+        if products:
+            return products
+
+        # Broaden only if the compact lookup was empty: all overlap neighbours,
+        # complete date window, alternate mission, then less precise products.
+        for level in ("L1TP","L1GT","L1GS"):
+            batches=await asyncio.gather(*(
+                fetch(mission,path,row,year,level)
+                for mission in missions
+                for path,row in paths
+                for year in years
+            ))
+            products=normalize(batches)
             if products:
-                break
-        return sorted(products,key=lambda row:(row[0],0 if row[1].endswith("_T1") else 1,row[1]))
+                return products
+        return []
 
     async def closest_scene(
         self,

@@ -46,9 +46,9 @@ test('all explicit dashboard buttons can be dispatched without page errors', asy
     if(p==='/api/geocode') return json(route,{ok:true,data:[{lat:'12.3375',lon:'75.8069',display_name:'Kodagu, Karnataka',geojson:{type:'Point',coordinates:[75.8069,12.3375]}}]});
     if(p==='/api/query') return json(route,{filters:{}});
     if(p==='/api/intelligence/predict') return json(route,{projection:[]});
-    if(p==='/api/intelligence/predict-location') return json(route,{projection:{},source_series:[]});
+    if(p==='/api/intelligence/predict-location') return json(route,{historical_risk_proxy:[8,12,18],dates:['2025-11-06','2026-01-01','2026-02-04'],analysis:{current_risk_index:18,interpretation:'Screening risk is rising.',observation_count:3},projection:{projected_values:[22,25],forecast_dates:['2026-03-01','2026-04-01'],lower:[18,19],upper:[26,31],trend_per_step:4,analysis:{direction:'INCREASING',strength:'MODERATE',confidence_pct:78,forecast_final:25,risk_level:'MODERATE',observations:3},pipeline:['Fit robust trends']},pipeline:['Read Sentinel-2 scenes'],generated_at:'2026-09-25T04:00:00Z',source_series:[]});
     if(p==='/api/intelligence/what-if') return json(route,{baseline:{},scenario:{}});
-    if(p==='/api/patrol/road-route') return json(route,{ordering:{route:[]},road_route:null});
+    if(p==='/api/patrol/road-route'||p==='/api/patrol/live') return json(route,{status:'ROAD_ROUTE_READY',ordering:{ordering_mode:'ROAD_TIME_PRIORITY',route:[{order:1,id:'hotspot-1',lat:12.35,lon:75.82,priority:90,priority_band:'CRITICAL',why_selected:'Critical priority balanced against road travel time.'}]},road_route:{distance_km:4.2,duration_min:11,source:'OSRM/OpenStreetMap',geometry:{type:'LineString',coordinates:[[75.8069,12.3375],[75.82,12.35]]},legs:[{steps:[{instruction:'Continue on Forest Road',distance_m:900,duration_min:2.4}]}]}});
     if(p.startsWith('/api/report')) return route.fulfill({status:200,contentType:'application/pdf',body:'%PDF-1.4\n%%EOF'});
     return json(route,{ok:true,data:{},features:[],groups:[],scenes:[]});
   });
@@ -65,6 +65,17 @@ test('all explicit dashboard buttons can be dispatched without page errors', asy
     await el.evaluate(node=>node.click());
     await page.waitForTimeout(35);
   }
+
+  await page.locator('[data-nav="predictions"]').evaluate(node=>node.click());
+  await page.locator('#runLocationPrediction').evaluate(node=>node.click());
+  await expect(page.locator('#predictionSummary .metric-card')).toHaveCount(4);
+  await expect(page.locator('#predictionStatus')).toContainText('Screening risk is rising');
+
+  await page.locator('#patrolBtn').evaluate(node=>node.click());
+  await page.locator('#runPatrol').evaluate(node=>node.click());
+  await expect(page.locator('#patrolMetrics .metric-card')).toHaveCount(4);
+  await expect(page.locator('#patrolStops .route-stop')).toHaveCount(1);
+  await expect(page.locator('#patrolInstructions')).toContainText('Forest Road');
 
   expect(fatal).toEqual([]);
 });

@@ -265,11 +265,13 @@ function renderInvestigation(d){const s=d.sources||{};const reverse=s.reverse_ge
   const fires=s.fire?.ok?(s.fire.data||[]):[];const fireSource=s.fire?.provenance?.source||'NASA fire intelligence';const fireFresh=s.fire?.provenance?.freshness||'';const pixelNrt=/FIRMS/i.test(fireSource)&&fireFresh==='LIVE_NRT';setText('sumFire',pixelNrt?String(fires.length):'—');setText('sumFireDelta',pixelNrt?'FIRMS NRT detections':s.fire?.ok?'Context only • '+fireSource.replace('NASA ','').slice(0,22):(s.fire?.error||'Fire sources unavailable').slice(0,31));setText('navAlertBadge',pixelNrt?String(fires.length):'—');
   const cur=s.weather?.ok?s.weather.data?.current:null;if(cur){setText('regionThumb',cur.temperature_2m!=null?`${Math.round(cur.temperature_2m)}°`:'🌲')}
   renderEnvironment(d,state.profile);
+  renderAnalysisIntelligence();
   renderNews(s.news);
 }
 
 function renderProfile(p){if(!p)return;state.profile=p;const loc=p.location||{},forest=p.forest||{},env=p.environment||{},terrain=p.terrain||{},human=p.human_pressure||{},fire=p.fire||{};const conservation=p.conservation||{};const pa=conservation?.inside===true||conservation?.value===1||conservation?.inside_protected_area===true?'Inside protected area':conservation?.error?'Unavailable':conservation?.inside===false?'No containing protected area found':'Not confirmed';
   $('profilePanel').innerHTML=`<div class="profile-grid"><div><small>Location</small><b>${esc(loc.display_name||state.place)}</b></div><div><small>Latest Sentinel scene</small><b>${esc(p.satellite?.latest_scene_time||'—')}</b></div><div><small>Dynamic World tree probability</small><b>${forest.dynamic_world_tree_probability!=null?pct(forest.dynamic_world_tree_probability,1):'—'}</b></div><div><small>GEDI biomass</small><b>${forest.gedi_agbd_mg_per_ha!=null?fmt(forest.gedi_agbd_mg_per_ha,1)+' Mg/ha':'—'}</b></div><div><small>Elevation</small><b>${terrain.elevation_m!=null?fmt(terrain.elevation_m,0)+' m':'—'}</b></div><div><small>Slope</small><b>${terrain.slope_deg!=null?fmt(terrain.slope_deg,1)+'°':'—'}</b></div><div><small>Temperature</small><b>${env.temperature_c??'—'} °C</b></div><div><small>Humidity</small><b>${env.humidity_pct??'—'}%</b></div><div><small>Mapped human pressure</small><b>${human.mapped_features??'—'}</b></div><div><small>Fire detections</small><b>${fire.detections_in_window??'—'}</b></div><div><small>Protected status</small><b>${esc(pa)}</b></div><div><small>Earth Engine</small><b>${p.earth_engine?.configured?'Configured':'Credential gated'}</b></div></div>`;
+  renderAnalysisIntelligence();
 }
 
 function nearestHourlyMetric(data,field){
@@ -360,6 +362,126 @@ function renderEnvironment(inv,profile){
   $('environmentPanel').innerHTML=sections.join('');
   setText('environmentUpdated',observed?`Weather ${String(observed).replace('T',' ').slice(0,16)}`:'Environmental context loaded');
 }
+
+function analysisValue(label,value,meta='',tone=''){
+  const shown=value==null||value===''?'—':String(value);
+  return `<div class="analysis-value ${esc(tone)}"><small>${esc(label)}</small><b>${esc(shown)}</b>${meta?`<em>${esc(meta)}</em>`:''}</div>`;
+}
+function situationRow(icon,title,text,tone=''){
+  return `<div class="situation-row ${esc(tone)}"><span>${icon}</span><div><b>${esc(title)}</b><p>${esc(text)}</p></div></div>`;
+}
+function impactTarget(label,current,target,meta=''){
+  return `<div class="impact-target"><small>${esc(label)}</small><b>${esc(current||'—')}</b><span>Target → ${esc(target)}</span>${meta?`<em>${esc(meta)}</em>`:''}</div>`;
+}
+function renderAnalysisIntelligence(){
+  const area=$('analysisAreaGrid'),situation=$('currentSituationPanel'),workflow=$('vanrakshakWorkflow'),impact=$('analysisImpactSummary');
+  if(!area||!situation||!workflow||!impact)return;
+
+  const inv=state.investigation||{},sources=inv.sources||{},profile=state.profile||{},evidence=state.evidence||{};
+  const weather=sources.weather||{},weatherData=weather.ok?weather.data||{}:{},cur=weatherData.current||{},units=weatherData.current_units||{};
+  const forest=profile.forest||{},terrain=profile.terrain||{},human=profile.human_pressure||{},sat=profile.satellite||{},conservation=profile.conservation||{};
+  const soil=sources.soil||profile.soil||{},fireSource=sources.fire||{},change=evidence.change||{},warning=evidence.warning||{},climate=evidence.climate||{},plan=evidence.action_plan||{};
+  const ph=soilMetric(soil,'phh2o'),soc=soilMetric(soil,'soc'),nitrogen=soilMetric(soil,'nitrogen'),clay=soilMetric(soil,'clay'),sand=soilMetric(soil,'sand'),silt=soilMetric(soil,'silt');
+  const soilMoist=nearestHourlyMetric(weatherData,'soil_moisture_0_to_1cm');
+  const coords=state.lat!=null&&state.lon!=null?`${state.lat.toFixed(5)}, ${state.lon.toFixed(5)}`:'—';
+  const observed=cur.time||weather.provenance?.observed_at||weather.provenance?.fetched_at||null;
+  const fireCount=fireSource.ok?(fireSource.data||[]).length:null;
+  const ndviDelta=change.mean_ndvi_change;
+  const candidateArea=change.candidate_area_ha;
+  const confidence=change.screening_confidence;
+  const treeProb=forest.dynamic_world_tree_probability;
+
+  let vegetationState='Awaiting satellite analysis',vegetationTone='';
+  if(ndviDelta!=null){
+    const n=Number(ndviDelta);
+    if(n<=-0.10){vegetationState='Strong declining vegetation signal';vegetationTone='danger'}
+    else if(n<=-0.03){vegetationState='Declining vegetation signal';vegetationTone='warn'}
+    else if(n<0.03){vegetationState='Broadly stable vegetation signal';vegetationTone='ok'}
+    else{vegetationState='Greening / increasing vegetation signal';vegetationTone='ok'}
+  }
+
+  let soilClass='Soil pH unavailable';
+  if(ph.value!=null){
+    soilClass=ph.value<5.5?'Acidic soil reference':ph.value<=7.5?'Near-neutral / mildly acidic soil reference':'Alkaline soil reference';
+  }
+
+  const protectedText=conservation?.inside===true||conservation?.inside_protected_area===true?'Inside protected area':conservation?.inside===false?'Outside mapped protected-area boundary':'Not confirmed';
+
+  area.innerHTML=[
+    analysisValue('Selected area',state.place||profile.location?.display_name||'Selected region',state.regionSub||'', 'wide'),
+    analysisValue('Coordinates',coords,'Selected AOI center'),
+    analysisValue('Air temperature',cur.temperature_2m!=null?`${fmt(cur.temperature_2m,1)} ${units.temperature_2m||'°C'}`:'—',observed?`Observed ${String(observed).replace('T',' ').slice(0,16)}`:'Weather source'),
+    analysisValue('Humidity',cur.relative_humidity_2m!=null?`${fmt(cur.relative_humidity_2m,0)} ${units.relative_humidity_2m||'%'}`:'—',weather.provenance?.source||''),
+    analysisValue('Current rain',cur.rain!=null?`${fmt(cur.rain,2)} ${units.rain||'mm'}`:'—','Current interval'),
+    analysisValue('Soil pH',ph.value!=null?fmt(ph.value,1):'—',soilClass),
+    analysisValue('Surface soil moisture',soilMoist.value!=null?`${fmt(soilMoist.value,3)} ${soilMoist.unit||''}`:'—',soilMoist.time||'0–1 cm forecast/reanalysis'),
+    analysisValue('Soil organic carbon',soc.value!=null?`${fmt(soc.value,2)} ${soc.unit}`:'—',soc.depth||'SoilGrids 0–5 cm'),
+    analysisValue('Soil nitrogen',nitrogen.value!=null?`${fmt(nitrogen.value,2)} ${nitrogen.unit}`:'—',nitrogen.depth||'SoilGrids 0–5 cm'),
+    analysisValue('Soil texture',clay.value!=null||sand.value!=null||silt.value!=null?`Clay ${clay.value!=null?fmt(clay.value,1):'—'} • Sand ${sand.value!=null?fmt(sand.value,1):'—'} • Silt ${silt.value!=null?fmt(silt.value,1):'—'}`:'—',clay.unit||sand.unit||silt.unit||'SoilGrids'),
+    analysisValue('Vegetation condition',vegetationState,ndviDelta!=null?`NDVI Δ ${fmt(ndviDelta,3)}`:'Requires before/after analysis',vegetationTone),
+    analysisValue('Tree probability',treeProb!=null?pct(treeProb,1):'—','Dynamic World / enhancement'),
+    analysisValue('Candidate affected area',candidateArea!=null?`${fmt(candidateArea,2)} ha`:'—',confidence!=null?`Screening confidence ${pct(confidence,0)}`:'Satellite screening'),
+    analysisValue('Biomass reference',forest.gedi_agbd_mg_per_ha!=null?`${fmt(forest.gedi_agbd_mg_per_ha,1)} Mg/ha`:'—','GEDI enhancement'),
+    analysisValue('Terrain',terrain.elevation_m!=null?`${fmt(terrain.elevation_m,0)} m elevation`:'—',terrain.slope_deg!=null?`Slope ${fmt(terrain.slope_deg,1)}°`:'Slope unavailable'),
+    analysisValue('Fire context',fireCount!=null?`${fireCount} returned points`:'—',fireSource.provenance?.source||'Fire provider'),
+    analysisValue('Human pressure',human.mapped_features!=null?`${human.mapped_features} mapped features`:'—','Road / settlement / quarry context'),
+    analysisValue('Protected-area context',protectedText,sources.protected_area?.provenance?.source||'Conservation context'),
+    analysisValue('Latest satellite scene',sat.latest_scene_time||'—',sat.available_scenes!=null?`${sat.available_scenes} available scenes`:'Satellite catalogue')
+  ].join('');
+
+  const changeText=candidateArea!=null
+    ?`${fmt(candidateArea,2)} ha is flagged as candidate vegetation change; NDVI change is ${ndviDelta!=null?fmt(ndviDelta,3):'unavailable'}.`
+    :'No complete before/after candidate-area result is available yet.';
+  const climateText=climate.temperature_anomaly_c!=null||climate.rainfall_deficit_pct!=null
+    ?`Temperature anomaly ${climate.temperature_anomaly_c!=null?fmt(climate.temperature_anomaly_c,2)+'°C':'—'}; rainfall deficit ${climate.rainfall_deficit_pct!=null?fmt(climate.rainfall_deficit_pct,1)+'%':'—'} over the analysis window.`
+    :'Climate anomaly analysis is not complete yet.';
+  const soilText=ph.value!=null||soilMoist.value!=null
+    ?`${soilClass}. Surface soil moisture is ${soilMoist.value!=null?fmt(soilMoist.value,3)+' '+(soilMoist.unit||''):'unavailable'}; organic carbon and nitrogen are shown above when SoilGrids returns them.`
+    :'Soil provider data is currently unavailable; VanRakshak does not fabricate soil values.';
+  const fireText=fireCount!=null
+    ?`${fireCount} fire-context points were returned by ${fireSource.provenance?.source||'the fire provider'}. These are context signals and require source-aware verification.`
+    :'Live fire context is unavailable for this request.';
+  const pressureText=human.mapped_features!=null
+    ?`${human.mapped_features} mapped human-pressure features are present in the area context. This supports patrol prioritization but does not prove causation.`
+    :'Human-pressure mapping is unavailable or returned no count.';
+  const riskText=warning.score!=null
+    ?`Current warning is ${warning.level||'UNKNOWN'} at ${fmt(warning.score,0)}/100 with ${warning.coverage!=null?pct(warning.coverage,0):'unknown'} evidence coverage.`
+    :'A complete evidence-normalized warning score has not been produced yet.';
+
+  situation.innerHTML=[
+    situationRow('🌿','Vegetation / forest change',changeText,ndviDelta!=null&&Number(ndviDelta)<-0.03?'danger':''),
+    situationRow('🌦','Climate stress',climateText,climate.rainfall_deficit_pct!=null&&Number(climate.rainfall_deficit_pct)>=25?'warn':''),
+    situationRow('🧪','Soil condition',soilText,''),
+    situationRow('🔥','Fire & heat context',fireText,fireCount>0?'warn':''),
+    situationRow('⌂','Human-pressure context',pressureText,human.mapped_features>0?'warn':''),
+    situationRow('⚠','Overall warning',riskText,warning.level==='CRITICAL'||warning.level==='WARNING'?'danger':warning.level==='WATCH'?'warn':'')
+  ].join('');
+
+  workflow.innerHTML=[
+    ['1','Detect','Before/After + NDVI/NDMI/NBR identify candidate forest change.'],
+    ['2','Verify','Evidence Chain checks satellite, climate, fire, soil and mapped pressure together.'],
+    ['3','Prioritize','Forest Doctor + warning score rank the most urgent locations and likely drivers.'],
+    ['4','Route','Patrol Planner sends teams first to candidate polygons and access points.'],
+    ['5','Alert & document','Patrol Alert + investigation report preserve coordinates, timestamps and evidence.'],
+    ['6','Recheck','Time Machine / next satellite scene validates whether the disturbance stopped or expanded.']
+  ].map(x=>`<div class="workflow-step"><span>${x[0]}</span><b>${x[1]}</b><p>${x[2]}</p></div>`).join('');
+
+  const fchange=change.fragmentation?.change||change.fragmentation_change||{};
+  const frag=fchange.patch_count_pct??fchange.patch_density_pct??fchange.edge_density_pct??null;
+  const actions=plan.actions||[];
+  const firstUrgent=actions.find(a=>a.priority==='URGENT'||a.priority==='HIGH');
+  impact.innerHTML=[
+    impactTarget('Change footprint',candidateArea!=null?`${fmt(candidateArea,2)} ha candidate`:'Not measured','Stable or smaller on the next suitable observation','Validates that the disturbance is not expanding.'),
+    impactTarget('Vegetation signal',ndviDelta!=null?`NDVI Δ ${fmt(ndviDelta,3)}`:'Not measured','NDVI stable or improving relative to this baseline','Recheck with cloud-screened satellite imagery.'),
+    impactTarget('Fire signal',fireCount!=null?`${fireCount} context points`:'Unavailable','No new verified thermal detections in the AOI','Context detections must be verified before declaring an active fire.'),
+    impactTarget('Fragmentation',frag!=null?`${Number(frag)>=0?'+':''}${fmt(frag,1)}%`:'Not measured','No worsening of patch / edge fragmentation','Compare the same geometry after intervention.'),
+    impactTarget('Field response',firstUrgent?.timeframe||'Pending plan','Highest-priority locations verified and documented',firstUrgent?.where||'Selected AOI'),
+    impactTarget('Overall outcome',warning.score!=null?`${warning.level||'RISK'} ${fmt(warning.score,0)}/100`:'Pending','Lower or stable risk with no unexplained new change',plan.expected_outcome||'Measured on repeat observations.')
+  ].join('');
+
+  setText('analysisAreaFreshness',observed?`Weather ${String(observed).replace('T',' ').slice(0,16)}`:'Area intelligence loaded');
+}
+
 function renderNews(n){if(!n||!n.ok){$('newsPanel').innerHTML=`<div class="empty-state">${esc(n?.error||'News context unavailable')}</div>`;return}const arts=n.data?.articles||[];$('newsPanel').innerHTML=arts.length?arts.slice(0,10).map(a=>`<article class="news-item"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title||a.url)}</a><small>${esc(a.domain||'')} • ${esc(a.seendate||'')}</small></article>`).join(''):'<div class="empty-state">No matching recent articles returned.</div>'}
 
 async function loadEvidence(showToast=true){if(!ensureLocation())return null;const revision=state.locationRevision;const before=$('beforeDate').value,after=$('afterDate').value;try{if(showToast)toast('Running satellite change + evidence fusion…',5000);const q=`/api/analysis/evidence-chain?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent(before)}&after_date=${encodeURIComponent(after)}&radius_km=2`;const d=await api(q);if(revision!==state.locationRevision)return null;state.evidence=d;renderEvidence(d);if(showToast)toast('Evidence analysis completed');return d}catch(e){if(showToast)toast('Analysis: '+String(e.message).slice(0,170));renderEvidence({warning:{level:'UNKNOWN',score:null,coverage:0,factors:[]},evidence_chain:{items:[]}});return null}}
@@ -367,7 +489,7 @@ async function loadEvidence(showToast=true){if(!ensureLocation())return null;con
 function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',w.score!=null?String(Math.round(Number(w.score))):'—');
   const sev=$('severityBadge');sev.textContent=w.level||'UNKNOWN';sev.className=`severity ${(w.level||'unknown').toLowerCase()}`;
   clearDynamicLayer('candidate-loss');if(c.geojson){addGeoPolygon('candidate-loss',c.geojson,'#ff473d')}
-  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);renderEnvironment(state.investigation,state.profile);
+  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);renderEnvironment(state.investigation,state.profile);renderAnalysisIntelligence();
   const items=d.evidence_chain?.items||[];$('keyEvidence').innerHTML=items.length?items.slice(0,4).map(x=>`<div class="evidence-item"><span class="evidence-check">✓</span><span>${esc(x.statement||x.source||x.kind)}</span></div>`).join(''):'<div class="empty-state">No complete evidence items returned.</div>';
   $('evidenceChain').innerHTML=items.length?items.map(x=>`<p><b>${esc(x.kind)}</b> · ${esc(x.source)} — ${esc(x.statement)}</p>`).join(''):'<p>Evidence sources are unavailable or incomplete for the selected dates.</p>';
   setText('carbonImpact',carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,0):'—');setText('carbonImpactSub',carbon.estimated_co2e_t!=null?'tCO₂e estimated':'Requires biomass/carbon reference');

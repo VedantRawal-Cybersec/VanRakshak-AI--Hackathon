@@ -1791,6 +1791,19 @@ async def live_patrol_ep(
             "route_summary":{"stops":0,"ordering_mode":"NO_TARGETS"},
             "status":"NO_PATROL_TARGETS",
             "analysis":{"hotspots_used":0,"candidate_polygon_count":len(features),"candidate_area_ha":change.get("candidate_area_ha"),"screening_confidence":change.get("screening_confidence"),"warning_score":base_priority,"before_scene":(change.get("before") or {}).get("id"),"after_scene":(change.get("after") or {}).get("id"),"before_observed_at":(change.get("before") or {}).get("datetime"),"after_observed_at":(change.get("after") or {}).get("datetime")},
+            "operational_brief":{
+                "situation":"No routable candidate-change hotspot was detected for the selected before/after comparison.",
+                "before_scene":change.get("before"),
+                "after_scene":change.get("after"),
+                "evidence_required":[
+                    "If patrol is still dispatched, capture a geotagged overview photo at the selected location.",
+                    "Record a continuous 15–30 second video sweep showing canopy, ground condition and nearby access routes.",
+                    "Photograph any stumps, burn marks, fresh clearing, machinery, tyre tracks or encroachment signs individually.",
+                    "Record GPS coordinates, UTC/local time, patrol member and a short observation note for every media item.",
+                ],
+                "field_rule":"Do not classify a cause or offence from satellite screening alone. Field media and notes must show what was actually observed.",
+                "expected_impact":"Maintain a verifiable field baseline and continue satellite monitoring without inventing a patrol hotspot.",
+            },
             "pipeline":["Run Sentinel-2 before/after multispectral change screening","Inspect candidate-change polygons","No routable patrol hotspots were detected, so road routing was intentionally skipped"],
             "candidate_source":"Sentinel-2 before/after candidate-change polygons",
             "generated_at":datetime.now(timezone.utc).isoformat(),
@@ -1798,9 +1811,58 @@ async def live_patrol_ep(
             "warning":"No candidate-change patrol hotspots were detected for this comparison. This is a valid analysis result, not a routing failure.",
         }
     routed=await patrol_road_route(PatrolRequest(start_lat=lat,start_lon=lon,points=points))
-    for stop in (routed.get("ordering") or {}).get("route") or []:
+    action_plan=bundle.get("action_plan") or {}
+    probable_drivers=((bundle.get("forest_doctor") or {}).get("probable_drivers") or [])
+    route_rows=(routed.get("ordering") or {}).get("route") or []
+    for stop in route_rows:
         stop["candidate_context"]=contexts.get(stop.get("id"))
-    return {**routed,"analysis":{"hotspots_used":len(points),"candidate_polygon_count":len(features),"candidate_area_ha":change.get("candidate_area_ha"),"screening_confidence":change.get("screening_confidence"),"warning_score":base_priority,"before_scene":(change.get("before") or {}).get("id"),"after_scene":(change.get("after") or {}).get("id"),"before_observed_at":(change.get("before") or {}).get("datetime"),"after_observed_at":(change.get("after") or {}).get("datetime")},"pipeline":["Run Sentinel-2 before/after multispectral change screening","Convert candidate-change polygons into patrol hotspot centroids","Assign evidence-based patrol priorities from warning/confidence signals","Request OSRM road travel-time matrix and order stops by travel cost + priority","Request final OSM road geometry, ETA, route legs and turn guidance"],"candidate_source":"Sentinel-2 before/after candidate-change polygons","generated_at":datetime.now(timezone.utc).isoformat(),"label":"DERIVED_FROM_REAL_DATA","warning":"Routing uses mapped OSM roads/tracks where available. Candidate polygons are screening evidence, not proof of deforestation; field accessibility and safety must be verified."}
+        stop["field_tasks"]=[
+            "Stand at a safe accessible point nearest the candidate centroid and confirm the actual land-cover condition.",
+            "Capture one geotagged wide photo covering the whole visible disturbance area.",
+            "Record a continuous 15–30 second video sweep from left to right, including canopy, ground and access route.",
+            "Capture close-up evidence of any stumps, burn marks, fresh clearing, machinery, tyre tracks or encroachment signs.",
+            "Record whether the suspected change is present, absent, seasonal/natural, inaccessible or unclear; do not assume a cause.",
+        ]
+        stop["evidence_required"]={
+            "photo":"At least 1 geotagged overview photo + close-ups of any physical disturbance signs.",
+            "video":"At least 1 continuous 15–30 second field video showing the site and approach/access context.",
+            "metadata":"GPS coordinates, timestamp, patrol member, stop ID and short observation note.",
+        }
+    return {
+        **routed,
+        "analysis":{
+            "hotspots_used":len(points),
+            "candidate_polygon_count":len(features),
+            "candidate_area_ha":change.get("candidate_area_ha"),
+            "screening_confidence":change.get("screening_confidence"),
+            "warning_score":base_priority,
+            "before_scene":(change.get("before") or {}).get("id"),
+            "after_scene":(change.get("after") or {}).get("id"),
+            "before_observed_at":(change.get("before") or {}).get("datetime"),
+            "after_observed_at":(change.get("after") or {}).get("datetime"),
+        },
+        "operational_brief":{
+            "situation":f"{len(points)} candidate-change patrol hotspot(s) generated from {len(features)} screened polygon(s).",
+            "before_scene":change.get("before"),
+            "after_scene":change.get("after"),
+            "probable_drivers":probable_drivers[:4],
+            "recommended_actions":(action_plan.get("actions") or [])[:5],
+            "evidence_required":[
+                "Geotagged overview photo at each stop.",
+                "Continuous 15–30 second field video showing canopy, ground and nearby road/track context.",
+                "Close-up photos of physical indicators such as stumps, fire scars, fresh soil, machinery tracks or new structures.",
+                "GPS coordinate, timestamp, patrol member and stop ID for every media item.",
+                "Short factual note describing only what was observed; suspected cause must be marked unconfirmed unless field evidence supports it.",
+            ],
+            "field_rule":"Satellite candidate polygons and predicted drivers are screening evidence. Patrol media and notes are the verification record.",
+            "expected_impact":"Verify the highest-priority hotspots quickly, preserve auditable evidence and determine whether follow-up enforcement/restoration/monitoring is actually warranted.",
+        },
+        "pipeline":["Run Sentinel-2 before/after multispectral change screening","Convert candidate-change polygons into patrol hotspot centroids","Assign evidence-based patrol priorities from warning/confidence signals","Request OSRM road travel-time matrix and order stops by travel cost + priority","Request final OSM road geometry, ETA, route legs and turn guidance"],
+        "candidate_source":"Sentinel-2 before/after candidate-change polygons",
+        "generated_at":datetime.now(timezone.utc).isoformat(),
+        "label":"DERIVED_FROM_REAL_DATA",
+        "warning":"Routing uses mapped OSM roads/tracks where available. Candidate polygons are screening evidence, not proof of deforestation; field accessibility and safety must be verified.",
+    }
 
 
 @app.get("/api/alerts/compose")

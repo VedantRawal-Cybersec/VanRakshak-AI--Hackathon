@@ -172,7 +172,9 @@ function clearQuickOverlays(){
 function trackQuickLayer(id){state.quickManagedLayers??=new Set();if(id)state.quickManagedLayers.add(id)}
 
 async function quickLayer(kind){
-  $('.map-pill').forEach(x=>x.classList.toggle('active',x.dataset.quick===kind));
+  $$('.map-pill').forEach(x=>x.classList.toggle('active',x.dataset.quick===kind));
+  const revision=state.quickLayerRevision=(state.quickLayerRevision||0)+1;
+  const current=()=>state.quickLayerRevision===revision;
   clearQuickOverlays();
   setQuickLegend(kind,kind==='satellite'?($('satelliteModeQuick')?.value||'true_color').replaceAll('_',' '):'');
   try{
@@ -180,12 +182,14 @@ async function quickLayer(kind){
       try{
         const mode=$('satelliteModeQuick')?.value||'true_color';
         const d=await api(satelliteLayerPath(mode));
+        if(!current())return;
         addRaster('quick-satellite',d.tile_url,.88,{maxzoom:d.max_zoom,attribution:d.attribution});
         setQuickLegend('satellite',mode.replaceAll('_',' '));
         toast(`${mode.replaceAll('_',' ').toUpperCase()} • ${d.source||'satellite'} • ${(d.observed_at||'').slice(0,10)||'latest'}`);
       }catch(primaryErr){
         if(($('satelliteModeQuick')?.value||'true_color')!=='true_color')throw primaryErr;
         const fallback=await api('/api/gibs/layer/viirs_snpp_true_color?date='+encodeURIComponent(selectedFilters().end||isoDate(new Date(Date.now()-86400000))));
+        if(!current())return;
         addRaster('quick-satellite',fallback.tile_url,.88,{maxzoom:fallback.max_zoom,attribution:fallback.attribution});
         setQuickLegend('satellite','NASA true color');
         toast('Requested satellite renderer unavailable • NASA real-imagery fallback loaded');
@@ -194,10 +198,12 @@ async function quickLayer(kind){
     if(kind==='ndvi'){
       try{
         const d=await api(satelliteLayerPath('ndvi'));
+        if(!current())return;
         addRaster('quick-ndvi',d.tile_url,.78,{maxzoom:d.max_zoom,attribution:d.attribution});
         toast('Sentinel-2 NDVI layer loaded');
       }catch(primaryErr){
         const fallback=await api('/api/gibs/layer/modis_terra_ndvi_8day?date='+encodeURIComponent(selectedFilters().end||isoDate(new Date(Date.now()-86400000))));
+        if(!current())return;
         addRaster('quick-ndvi',fallback.tile_url,.78,{maxzoom:fallback.max_zoom,attribution:fallback.attribution});
         setQuickLegend('ndvi','MODIS NDVI fallback');
         toast('Sentinel-2 NDVI unavailable for filters • NASA MODIS NDVI fallback loaded');
@@ -205,12 +211,12 @@ async function quickLayer(kind){
     }
     if(kind==='fire'){
       let pointsOk=false;
-      try{await enableFireLayer('quick-fire');pointsOk=true}catch{}
+      try{await enableFireLayer('quick-fire',true);if(!current()){clearDynamicLayer('quick-fire');return}pointsOk=true}catch{}
       const thermal=findLayerBy(l=>l.id==='nasa_viirs_thermal');
       let thermalOk=false;
-      if(thermal){try{await toggleLayer(thermal,true,null);trackQuickLayer(thermal.id);thermalOk=true}catch{}}
+      if(thermal){try{await toggleLayer(thermal,true,null);if(!current()){clearDynamicLayer(thermal.id);return}trackQuickLayer(thermal.id);thermalOk=true}catch{}}
       if(!pointsOk&&!thermalOk)throw new Error('Fire providers unavailable');
-      setQuickLegend('fire',pointsOk&&thermalOk?'FIRMS + VIIRS thermal':pointsOk?'FIRMS hotspots':'VIIRS thermal');
+      if(current())setQuickLegend('fire',pointsOk&&thermalOk?'FIRMS + VIIRS thermal':pointsOk?'FIRMS hotspots':'VIIRS thermal');
     }
     if(kind==='temperature'){
       showTab('environment');
@@ -219,26 +225,27 @@ async function quickLayer(kind){
       const gibsTemp=findLayerBy(l=>l.id==='nasa_modis_lst');
       let rasterLoaded=false;
       if(eeTemp&&state.sourceHealth?.sources?.some(x=>x.source==='Google Earth Engine'&&x.ok)){
-        try{await toggleLayer(eeTemp,true,null);trackQuickLayer(eeTemp.id);rasterLoaded=true}catch{}
+        try{await toggleLayer(eeTemp,true,null);if(!current()){clearDynamicLayer(eeTemp.id);return}trackQuickLayer(eeTemp.id);rasterLoaded=true}catch{}
       }
       if(!rasterLoaded&&gibsTemp){
-        try{await toggleLayer(gibsTemp,true,null);trackQuickLayer(gibsTemp.id);rasterLoaded=true}catch{}
+        try{await toggleLayer(gibsTemp,true,null);if(!current()){clearDynamicLayer(gibsTemp.id);return}trackQuickLayer(gibsTemp.id);rasterLoaded=true}catch{}
       }
-      setQuickLegend('temperature',rasterLoaded?'surface temperature + air temperature':'air temperature');
+      if(current())setQuickLegend('temperature',rasterLoaded?'surface temperature + air temperature':'air temperature');
       toast(cur.temperature_2m!=null?`Air temperature ${cur.temperature_2m}°C • Open-Meteo${rasterLoaded?' • surface-temperature raster loaded':''}`:'Temperature intelligence panel opened');
     }
     if(kind==='forest'){
       const forest=findLayerBy(l=>l.id==='forest_cover')||findLayerBy(l=>l.id==='tree_cover_2000')||findLayerBy(l=>/forest cover|tree probability|dynamic world/i.test(`${l.label||''} ${l.id||''}`));
-      if(forest){await toggleLayer(forest,true,null);trackQuickLayer(forest.id);setQuickLegend('forest',forest.source||'forest source')}
+      if(forest){await toggleLayer(forest,true,null);if(!current()){clearDynamicLayer(forest.id);return}trackQuickLayer(forest.id);setQuickLegend('forest',forest.source||'forest source')}
       else{showTab('analysis');toast('Forest profile opened.')}
     }
   }catch(e){
+    if(!current())return;
     setText('mapStatus',`${QUICK_LEGENDS[kind]?.title||'Layer'} unavailable • ${String(e.message).slice(0,110)}`);
     toast(String(e.message).slice(0,180));
   }
 }
 
-async function enableFireLayer(id='fire-hotspots'){const s=await api(`/api/fire?lat=${state.lat}&lon=${state.lon}&days=1`);if(!s.ok)throw new Error(s.error||'Fire intelligence unavailable');const feats=(s.data||[]).map(r=>({type:'Feature',geometry:{type:'Point',coordinates:[Number(r.longitude),Number(r.latitude)]},properties:r})).filter(x=>Number.isFinite(x.geometry.coordinates[0])&&Number.isFinite(x.geometry.coordinates[1]));addGeoPoints(id,feats,'#ff423d');toast(`${feats.length} fire-context points • ${s.provenance?.source||'NASA source'}`)}
+async function enableFireLayer(id='fire-hotspots',silent=false){const s=await api(`/api/fire?lat=${state.lat}&lon=${state.lon}&days=1`);if(!s.ok)throw new Error(s.error||'Fire intelligence unavailable');const feats=(s.data||[]).map(r=>({type:'Feature',geometry:{type:'Point',coordinates:[Number(r.longitude),Number(r.latitude)]},properties:r})).filter(x=>Number.isFinite(x.geometry.coordinates[0])&&Number.isFinite(x.geometry.coordinates[1]));addGeoPoints(id,feats,'#ff423d');if(!silent)toast(`${feats.length} fire-context points • ${s.provenance?.source||'NASA source'}`)}
 
 async function investigate(lat,lon,place='Selected Forest Region'){
   const revision=state.locationRevision=(state.locationRevision||0)+1;state.lat=Number(lat);state.lon=Number(lon);state.place=place||'Selected Forest Region';state.evidence=null;state.alert=null;state.alertPatrol=null;clearDynamicLayer('candidate-loss');for(const def of allLayers().filter(d=>state.active.has(d.id)&&!['gfw','gibs'].includes(d.render))){clearDynamicLayer(def.id);toggleLayer(def,true,null)}

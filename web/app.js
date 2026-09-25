@@ -5,7 +5,7 @@ const state={
   lat:12.3375,lon:75.8069,place:'Kodagu Forest Region',regionSub:'Karnataka, India',
   investigation:null,profile:null,evidence:null,layers:[],active:new Map(),sourceHealth:null,
   inlineBefore:null,inlineAfter:null,panelBefore:null,panelAfter:null,modalBefore:null,modalAfter:null,
-  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null,predictionChart:null,demoScenarios:[],alert:null,alertPatrol:null
+  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null,predictionChart:null,demoScenarios:[],alert:null,alertPatrol:null,patrolMap:null,patrolRouteGeometry:null,patrolEvidenceUrls:[]
 };
 
 const baseStyle={
@@ -824,11 +824,115 @@ async function runPrediction(useLocation=false){
 }
 async function runWhatIf(){try{if(!ensureLocation())return;const before=$('beforeDate').value,after=$('afterDate').value;if(!before||!after)throw new Error('Select real before/after dates first');const qs=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,temperature_delta_c:String(Number($('whatTemp').value||0)),rainfall_delta_pct:String(Number($('whatRain').value||0)),fire_delta:String(Number($('whatFire').value||0)),ndvi_delta:'0'});const d=await api('/api/intelligence/what-if-location?'+qs.toString());$('whatIfResult').textContent=JSON.stringify(d,null,2)}catch(e){$('whatIfResult').textContent=e.message}}
 
-function openPatrol(){if(!ensureLocation())return;$('patrolModal').classList.remove('hidden');if(!$('patrolPoints').value.trim())$('patrolPoints').value=`${state.lat.toFixed(5)},${state.lon.toFixed(5)},95`}
-function fitLineGeometry(geometry){const coords=geometry?.coordinates||[];if(!coords.length)return;let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;for(const c of coords){if(!Array.isArray(c)||c.length<2)continue;minX=Math.min(minX,c[0]);maxX=Math.max(maxX,c[0]);minY=Math.min(minY,c[1]);maxY=Math.max(maxY,c[1])}if(Number.isFinite(minX))map.fitBounds([[minX,minY],[maxX,maxY]],{padding:70,maxZoom:13,duration:700})}
+function openPatrol(){
+  if(!ensureLocation())return;
+  $('patrolModal').classList.remove('hidden');
+  $('patrolScroll')?.scrollTo({top:0,behavior:'auto'});
+  if(!$('patrolPoints').value.trim())$('patrolPoints').value=`${state.lat.toFixed(5)},${state.lon.toFixed(5)},95`;
+  setTimeout(()=>{try{state.patrolMap?.resize()}catch{}},60);
+}
+function closePatrol(){
+  $('patrolModal').classList.add('hidden');
+}
+function fitLineGeometry(geometry,targetMap=map){
+  const coords=geometry?.coordinates||[];
+  if(!coords.length)return;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  for(const c of coords){
+    if(!Array.isArray(c)||c.length<2)continue;
+    minX=Math.min(minX,c[0]);maxX=Math.max(maxX,c[0]);minY=Math.min(minY,c[1]);maxY=Math.max(maxY,c[1]);
+  }
+  if(Number.isFinite(minX))targetMap.fitBounds([[minX,minY],[maxX,maxY]],{padding:60,maxZoom:14,duration:650});
+}
+function patrolFallbackGeometry(route){
+  const coords=[[state.lon,state.lat],...(route||[]).map(x=>[Number(x.lon),Number(x.lat)]).filter(x=>x.every(Number.isFinite))];
+  return coords.length>1?{type:'LineString',coordinates:coords}:null;
+}
+function drawPatrolOnMainMap(route,road){
+  clearDynamicLayer('patrol-route');clearDynamicLayer('patrol-stops');
+  const features=[{type:'Feature',properties:{kind:'start',label:'Start'},geometry:{type:'Point',coordinates:[state.lon,state.lat]}},...route.map((s,i)=>({type:'Feature',properties:{id:s.id,priority:s.priority,order:s.order||i+1,label:`Stop ${i+1}`},geometry:{type:'Point',coordinates:[s.lon,s.lat]}}))];
+  addGeoPoints('patrol-stops',features,'#ffd166');
+  const geometry=road?.geometry||patrolFallbackGeometry(route);
+  state.patrolRouteGeometry=geometry;
+  if(!geometry){fitSelected();return}
+  const fallback=!road?.geometry;
+  map.addSource('src-patrol-route',{type:'geojson',data:{type:'Feature',properties:{fallback},geometry}});
+  map.addLayer({id:'lyr-patrol-route',type:'line',source:'src-patrol-route',paint:{
+    'line-color':fallback?'#f2bd4b':'#37e79c',
+    'line-width':fallback?4:6,
+    'line-opacity':.98,
+    'line-dasharray':fallback?[2,2]:[1,0]
+  }},map.getLayer('labels')?'labels':undefined);
+  state.active.set('patrol-route',{source:'src-patrol-route',layer:'lyr-patrol-route'});
+  fitLineGeometry(geometry,map);
+}
+function renderPatrolMiniMap(route,road){
+  const el=$('patrolRouteMap'),fallbackEl=$('patrolMapFallback');
+  if(!el||typeof maplibregl==='undefined')return;
+  try{state.patrolMap?.remove()}catch{}
+  const geometry=road?.geometry||patrolFallbackGeometry(route);
+  if(!geometry){if(fallbackEl)fallbackEl.textContent='No route geometry is available for this patrol.';return}
+  if(fallbackEl)fallbackEl.textContent=road?.geometry?'Road/track geometry from the routing provider.':'Road geometry unavailable — dashed line shows stop order only and must not be treated as drivable.';
+  state.patrolMap=new maplibregl.Map({container:el,style:baseStyle,center:[state.lon,state.lat],zoom:11,attributionControl:false});
+  state.patrolMap.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+  state.patrolMap.on('load',()=>{
+    const fallback=!road?.geometry;
+    state.patrolMap.addSource('patrol-route-mini',{type:'geojson',data:{type:'Feature',properties:{fallback},geometry}});
+    state.patrolMap.addLayer({id:'patrol-route-mini-line',type:'line',source:'patrol-route-mini',paint:{'line-color':fallback?'#f2bd4b':'#37e79c','line-width':5,'line-opacity':.98,'line-dasharray':fallback?[2,2]:[1,0]}});
+    const pointFeatures=[
+      {type:'Feature',properties:{order:0},geometry:{type:'Point',coordinates:[state.lon,state.lat]}},
+      ...route.map((x,i)=>({type:'Feature',properties:{order:i+1},geometry:{type:'Point',coordinates:[x.lon,x.lat]}}))
+    ];
+    state.patrolMap.addSource('patrol-stops-mini',{type:'geojson',data:{type:'FeatureCollection',features:pointFeatures}});
+    state.patrolMap.addLayer({id:'patrol-stops-mini-circles',type:'circle',source:'patrol-stops-mini',paint:{'circle-radius':7,'circle-color':'#ffd166','circle-stroke-color':'#08151c','circle-stroke-width':2}});
+    fitLineGeometry(geometry,state.patrolMap);
+  });
+}
+function renderPatrolBrief(d,route){
+  const brief=d.operational_brief||{},analysis=d.analysis||{};
+  const drivers=brief.probable_drivers||[];
+  const actions=brief.recommended_actions||[];
+  const sceneBefore=brief.before_scene||{},sceneAfter=brief.after_scene||{};
+  const rows=[];
+  rows.push(`<div class="patrol-brief-block"><small>SITUATION</small><p>${esc(brief.situation||`${route.length} ordered patrol stop(s) prepared.`)}</p></div>`);
+  if(sceneBefore.id||sceneAfter.id){
+    rows.push(`<div class="patrol-brief-block"><small>REAL SATELLITE EVIDENCE</small><p>Before: ${esc(sceneBefore.id||analysis.before_scene||'—')} • ${esc(String(sceneBefore.datetime||analysis.before_observed_at||'').slice(0,19)||'—')}</p><p>After: ${esc(sceneAfter.id||analysis.after_scene||'—')} • ${esc(String(sceneAfter.datetime||analysis.after_observed_at||'').slice(0,19)||'—')}</p><button id="openPatrolSatelliteEvidence" class="small-secondary">View Before / After Satellite Evidence</button></div>`);
+  }
+  if(drivers.length){
+    rows.push(`<div class="patrol-brief-block"><small>WHAT TO VERIFY — NOT CONFIRMED CAUSES</small>${drivers.slice(0,4).map(x=>`<p>• ${esc(x.driver||x.name||'Context signal')} ${x.relative_support_pct!=null?`• ${fmt(x.relative_support_pct,0)}% relative support`:''}</p>`).join('')}</div>`);
+  }
+  if(actions.length){
+    rows.push(`<div class="patrol-brief-block"><small>VANRAKSHAK ACTION PLAN</small>${actions.slice(0,5).map((x,i)=>`<p><b>${i+1}. ${esc(x.what||'Action')}</b> — ${esc(x.how||'Verify in the field.')} ${x.timeframe?`<em>${esc(x.timeframe)}</em>`:''}</p>`).join('')}</div>`);
+  }
+  rows.push(`<div class="patrol-brief-block"><small>EXPECTED IMPACT</small><p>${esc(brief.expected_impact||'Create a verified field record and prevent unverified satellite screening from being treated as confirmed ground truth.')}</p></div>`);
+  rows.push(`<div class="patrol-brief-block caution"><small>FIELD RULE</small><p>${esc(brief.field_rule||d.warning||'Verify field accessibility and do not infer cause from satellite screening alone.')}</p></div>`);
+  $('patrolBrief').innerHTML=rows.join('');
+  const evidence=brief.evidence_required||route.flatMap(x=>x.evidence_required?Object.values(x.evidence_required):[]).filter(Boolean);
+  $('patrolEvidenceRequirements').innerHTML=evidence.length?evidence.map((x,i)=>`<div class="evidence-requirement"><b>${i+1}</b><span>${esc(x)}</span></div>`).join(''):'<div class="drawer-note">Capture geotagged overview media, close-up disturbance evidence and factual notes at each stop.</div>';
+  const satelliteBtn=$('openPatrolSatelliteEvidence');
+  if(satelliteBtn)satelliteBtn.onclick=()=>{closePatrol();showTab('before');$('inspector')?.scrollTo({top:0,behavior:'smooth'});};
+}
+function renderPatrolEvidenceFiles(files){
+  for(const u of state.patrolEvidenceUrls||[])try{URL.revokeObjectURL(u)}catch{}
+  state.patrolEvidenceUrls=[];
+  const rows=[];
+  for(const file of Array.from(files||[]).slice(0,12)){
+    const url=URL.createObjectURL(file);state.patrolEvidenceUrls.push(url);
+    const meta=`${file.name} • ${(file.size/1024/1024).toFixed(1)} MB • ${new Date(file.lastModified||Date.now()).toLocaleString()}`;
+    if(file.type.startsWith('video/'))rows.push(`<article class="field-media-item"><video src="${url}" controls preload="metadata"></video><small>${esc(meta)}</small><b>Real field video attachment • metadata must match stop/location/time.</b></article>`);
+    else if(file.type.startsWith('image/'))rows.push(`<article class="field-media-item"><img src="${url}" alt="Patrol field evidence preview"><small>${esc(meta)}</small><b>Real field photo attachment • metadata must match stop/location/time.</b></article>`);
+    else rows.push(`<article class="field-media-item"><small>${esc(meta)}</small><b>Attached evidence file</b></article>`);
+  }
+  $('patrolEvidencePreview').innerHTML=rows.length?rows.join(''):'<div class="drawer-note">No field media attached yet.</div>';
+}
 function renderPatrolResult(d,useDetected){
   const o=d.ordering||{},route=o.route||[],road=d.road_route||{};
-  const patrolMetrics=[predictionMetric('Stops',String(route.length),useDetected?'detected hotspots':'entered targets'),predictionMetric('Road distance',road.distance_km!=null?`${fmt(road.distance_km,1)} km`:'Unavailable',o.ordering_mode||''),predictionMetric('ETA',road.duration_min!=null?`${fmt(road.duration_min,0)} min`:'—',road.source||'fallback ordering'),predictionMetric('Mode',d.status||'—',o.ordering_mode||'')];
+  const patrolMetrics=[
+    predictionMetric('Stops',String(route.length),useDetected?'detected hotspots':'entered targets'),
+    predictionMetric('Road distance',road.distance_km!=null?`${fmt(road.distance_km,1)} km`:'Unavailable',o.ordering_mode||''),
+    predictionMetric('ETA',road.duration_min!=null?`${fmt(road.duration_min,0)} min`:'—',road.source||'fallback ordering'),
+    predictionMetric('Route source',road.source||'Priority order only',road.geometry?'road geometry':'no road geometry')
+  ];
   if(useDetected&&d.analysis){
     patrolMetrics.push(
       predictionMetric('Candidate area',d.analysis.candidate_area_ha!=null?`${fmt(d.analysis.candidate_area_ha,2)} ha`:'—','screened change'),
@@ -838,31 +942,71 @@ function renderPatrolResult(d,useDetected){
     );
   }
   $('patrolMetrics').innerHTML=patrolMetrics.join('');
-  $('patrolStops').innerHTML=route.map((s,i)=>{const area=s.candidate_context?.area_ha;return `<article class="route-stop"><b>${i+1}</b><div><strong>${esc(s.id)}</strong><small>${fmt(s.lat,5)}, ${fmt(s.lon,5)} • priority ${fmt(s.priority,0)}/100 (${esc(s.priority_band||'')})${area!=null?` • ${fmt(area,2)} ha candidate`:''}</small><em>${esc(s.why_selected||'')}</em></div></article>`}).join('')||'<div class="empty-state">No patrol hotspots detected for this comparison.</div>';
-  const steps=(road.legs||[]).flatMap((leg,li)=>(leg.steps||[]).slice(0,8).map(x=>({...x,leg:li+1})));
-  $('patrolInstructions').innerHTML=steps.length?`<h3>Road Guidance</h3>${steps.map(x=>`<div class="route-step"><b>L${x.leg}</b><span>${esc(x.instruction)} <small>${fmt(x.distance_m,0)} m • ${fmt(x.duration_min,1)} min</small></span></div>`).join('')}`:'<div class="drawer-note">No turn guidance returned. The ordered stops remain available, but straight lines must not be treated as roads.</div>';
+  $('patrolStops').innerHTML=route.map((stop,i)=>{
+    const area=stop.candidate_context?.area_ha,tasks=stop.field_tasks||[];
+    return `<article class="route-stop precise-stop"><b>${i+1}</b><div><strong>${esc(stop.id)}</strong><small>${fmt(stop.lat,5)}, ${fmt(stop.lon,5)} • priority ${fmt(stop.priority,0)}/100 (${esc(stop.priority_band||'')})${area!=null?` • ${fmt(area,2)} ha candidate`:''}</small><em>${esc(stop.why_selected||'Evidence-ranked patrol target.')}</em>${tasks.length?`<details><summary>Exact field checks</summary>${tasks.map(x=>`<p>• ${esc(x)}</p>`).join('')}</details>`:''}</div></article>`;
+  }).join('')||'<div class="empty-state">No patrol hotspots detected for this comparison.</div>';
+  const steps=(road.legs||[]).flatMap((leg,li)=>(leg.steps||[]).slice(0,12).map(x=>({...x,leg:li+1})));
+  $('patrolInstructions').innerHTML=steps.length?`<h3>Road Guidance</h3>${steps.map(x=>`<div class="route-step"><b>L${x.leg}</b><span>${esc(x.instruction)} <small>${fmt(x.distance_m,0)} m • ${fmt(x.duration_min,1)} min</small></span></div>`).join('')}`:'<div class="drawer-note">No turn guidance returned. The ordered stops remain available, but dashed straight-line ordering must not be treated as a drivable road.</div>';
   $('patrolResult').textContent=JSON.stringify(d,null,2);
-  if(d.status==='NO_PATROL_TARGETS')setText('patrolStatus','Analysis complete: no candidate-change patrol hotspots were detected, so routing was correctly skipped.');
-  else setText('patrolStatus',road.geometry?`Road route ready from ${road.source}. ${fmt(road.distance_km,1)} km / ~${fmt(road.duration_min,0)} min.`:`Road service unavailable. Showing ${o.ordering_mode||'fallback'} ordering only.`);
-  clearDynamicLayer('patrol-route');clearDynamicLayer('patrol-stops');
-  const features=[{type:'Feature',properties:{kind:'start'},geometry:{type:'Point',coordinates:[state.lon,state.lat]}},...route.map(s=>({type:'Feature',properties:{id:s.id,priority:s.priority,order:s.order},geometry:{type:'Point',coordinates:[s.lon,s.lat]}}))];
-  addGeoPoints('patrol-stops',features,'#ffd166');
-  if(road.geometry){map.addSource('src-patrol-route',{type:'geojson',data:{type:'Feature',properties:{},geometry:road.geometry}});map.addLayer({id:'lyr-patrol-route',type:'line',source:'src-patrol-route',paint:{'line-color':'#37e79c','line-width':4,'line-opacity':.95}},map.getLayer('labels')?'labels':undefined);state.active.set('patrol-route',{source:'src-patrol-route',layer:'lyr-patrol-route'});fitLineGeometry(road.geometry)}else fitSelected();
+  renderPatrolBrief(d,route);
+  drawPatrolOnMainMap(route,road);
+  renderPatrolMiniMap(route,road);
+  $('showPatrolMainMap').disabled=!state.patrolRouteGeometry;
+  if(d.status==='NO_PATROL_TARGETS')setText('patrolStatus','Analysis complete: no candidate-change patrol hotspots were detected. No route was fabricated.');
+  else setText('patrolStatus',road.geometry?`Road route ready from ${road.source}. ${fmt(road.distance_km,1)} km / ~${fmt(road.duration_min,0)} min. Verify forest-track accessibility before deployment.`:`Road geometry unavailable. Showing ${o.ordering_mode||'priority'} stop ordering only; dashed lines are not roads.`);
 }
 async function runPatrol(useDetected=false){
   const btn=useDetected?$('runDetectedPatrol'):$('runPatrol');
   try{
-    if(!ensureLocation())return;btn.disabled=true;setText('patrolStatus',useDetected?'Running change screening, extracting hotspots and requesting road travel matrix…':'Validating stops and requesting road travel matrix…');$('patrolMetrics').innerHTML='';$('patrolStops').innerHTML='<div class="empty-state">Building route…</div>';$('patrolInstructions').innerHTML='';
-    const before=$('beforeDate').value,after=$('afterDate').value;let d;
+    if(!ensureLocation())return;
+    btn.disabled=true;
+    setText('patrolStatus',useDetected?'Running real change screening, extracting hotspots and requesting road travel matrix…':'Validating stops and requesting road travel matrix…');
+    $('patrolMetrics').innerHTML='';
+    $('patrolStops').innerHTML='<div class="empty-state">Building precise route…</div>';
+    $('patrolBrief').innerHTML='<div class="empty-state">Building operational field brief…</div>';
+    $('patrolEvidenceRequirements').innerHTML='<div class="empty-state">Loading evidence requirements…</div>';
+    $('patrolInstructions').innerHTML='';
+    $('showPatrolMainMap').disabled=true;
+    const before=$('beforeDate').value,after=$('afterDate').value;
+    let d;
     if(useDetected){
       if(!before||!after)throw new Error('Select real before/after dates first');
-      const q=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,max_points:'5'});d=await api('/api/patrol/live?'+q.toString());
+      const q=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,max_points:'5'});
+      d=await api('/api/patrol/live?'+q.toString());
     }else{
-      const points=$('patrolPoints').value.trim().split('\n').filter(Boolean).map((row,i)=>{const v=row.split(',').map(x=>Number(x.trim()));if(v.length!==3||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>90||Math.abs(v[1])>180||v[2]<0||v[2]>100)throw new Error(`Invalid stop on line ${i+1}: use lat,lon,priority (0–100).`);return {id:String(i+1),lat:v[0],lon:v[1],priority:v[2]}});if(!points.length)throw new Error('Enter at least one patrol stop.');
+      const points=$('patrolPoints').value.trim().split('\n').filter(Boolean).map((row,i)=>{
+        const v=row.split(',').map(x=>Number(x.trim()));
+        if(v.length!==3||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>90||Math.abs(v[1])>180||v[2]<0||v[2]>100)throw new Error(`Invalid stop on line ${i+1}: use lat,lon,priority (0–100).`);
+        return {id:String(i+1),lat:v[0],lon:v[1],priority:v[2]};
+      });
+      if(!points.length)throw new Error('Enter at least one patrol stop.');
       d=await api('/api/patrol/road-route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_lat:state.lat,start_lon:state.lon,points})});
+      d.operational_brief={
+        situation:`${points.length} manually entered patrol stop(s) ordered using road travel time where available.`,
+        evidence_required:[
+          'Geotagged overview photo at every stop.',
+          'Continuous 15–30 second video showing site condition and access route.',
+          'Close-up photos of any physical disturbance indicators.',
+          'GPS coordinates, timestamp, stop ID, patrol member and factual observation note.'
+        ],
+        field_rule:'Manual priorities are user-entered. Verify site conditions and never treat the route itself as evidence of disturbance.',
+        expected_impact:'Create a consistent field-verification record across all manually selected stops.'
+      };
     }
-    if(useDetected)state.alertPatrol=d;renderPatrolResult(d,useDetected);toast(d.status==='NO_PATROL_TARGETS'?'Analysis complete: no patrol hotspots detected':d.road_route?'Road-aware patrol route loaded':'Road route unavailable; fallback ordering displayed',4500);
-  }catch(e){setText('patrolStatus','Patrol route failed: '+e.message);$('patrolResult').textContent=e.message;$('patrolStops').innerHTML='';$('patrolInstructions').innerHTML=''}finally{btn.disabled=false}
+    if(useDetected)state.alertPatrol=d;
+    renderPatrolResult(d,useDetected);
+    $('patrolScroll')?.scrollTo({top:0,behavior:'smooth'});
+    toast(d.status==='NO_PATROL_TARGETS'?'Analysis complete: no patrol hotspots detected':d.road_route?'Road-aware patrol route loaded on both maps':'Road route unavailable; priority ordering displayed',4500);
+  }catch(e){
+    setText('patrolStatus','Patrol route failed: '+e.message);
+    $('patrolResult').textContent=e.message;
+    $('patrolStops').innerHTML='';
+    $('patrolBrief').innerHTML=`<div class="empty-state">${esc(e.message)}</div>`;
+    $('patrolEvidenceRequirements').innerHTML='';
+    $('patrolInstructions').innerHTML='';
+    $('showPatrolMainMap').disabled=true;
+  }finally{btn.disabled=false}
 }
 
 function alertRouteAppendix(){

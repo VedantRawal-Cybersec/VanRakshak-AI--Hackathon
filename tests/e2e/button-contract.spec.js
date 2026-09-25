@@ -68,12 +68,12 @@ test('all explicit dashboard buttons can be dispatched without page errors', asy
 
   await page.locator('[data-nav="predictions"]').evaluate(node=>node.click());
   await page.locator('#runLocationPrediction').evaluate(node=>node.click());
-  await expect(page.locator('#predictionSummary .metric-card')).toHaveCount(4);
+  await expect(page.locator('#predictionSummary .metric-card')).toHaveCount(8);
   await expect(page.locator('#predictionStatus')).toContainText('Screening risk is rising');
 
   await page.locator('#patrolBtn').evaluate(node=>node.click());
-  await page.locator('#runPatrol').evaluate(node=>node.click());
-  await expect(page.locator('#patrolMetrics .metric-card')).toHaveCount(4);
+  await page.locator('#runDetectedPatrol').evaluate(node=>node.click());
+  await expect(page.locator('#patrolMetrics .metric-card')).toHaveCount(8);
   await expect(page.locator('#patrolStops .route-stop')).toHaveCount(1);
   await expect(page.locator('#patrolInstructions')).toContainText('Forest Road');
 

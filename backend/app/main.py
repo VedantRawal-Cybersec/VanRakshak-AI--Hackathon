@@ -1210,7 +1210,117 @@ async def predict_location_ep(
     quality=max(0.0,min(100.0,100.0-(sum(cloud_values)/len(cloud_values)*100 if cloud_values else 0.0)))
     p=projection.get("analysis") or {}
     interpretation="Observed vegetation/forest decline is producing a rising screening-risk trend." if p.get("direction")=="INCREASING" else "The derived screening-risk trend is easing over the selected observation period." if p.get("direction")=="DECREASING" else "The derived screening-risk trend is broadly stable over the selected observation period."
-    return {"location":{"lat":lat,"lon":lon},"period":{"start":start,"end":end},"historical_risk_proxy":risk_values,"dates":dates,"projection":projection,"analysis":{"interpretation":interpretation,"ndvi_change_first_to_latest":ndvi_change,"forest_fraction_change_first_to_latest":forest_change,"latest_observation":dates[-1],"observation_count":len(valid),"scene_read_errors":len(series.get("errors") or []),"optical_quality_pct":round(quality,1),"baseline_mean_ndvi":round(base_nd,4),"baseline_forest_fraction":round(base_fc,4),"current_risk_index":risk_values[-1],"projected_risk_index":(projection.get("projected_values") or [None])[-1],"model_confidence_pct":p.get("confidence_pct")},"components":components,"source_series":valid,"source":series.get("source"),"pipeline":["Search real Sentinel-2 L2A scenes in the selected period","Read red/NIR pixels and mask cloud/shadow/snow using SCL","Compute mean NDVI and forest fraction for each observation","Convert decline from the early-period baseline into a 0-100 screening-risk index","Run robust ensemble trend forecasting and uncertainty analysis"],"generated_at":datetime.now(timezone.utc).isoformat(),"label":"AI_ESTIMATE","warning":"Risk index is a transparent screening indicator derived from optical vegetation/forest-fraction decline. It is not a probability of illegal deforestation and should be checked against seasonality, radar and field evidence."}
+    projected_values=projection.get("projected_values") or []
+    final_projection=projected_values[-1] if projected_values else None
+    lower_values=projection.get("lower") or []
+    upper_values=projection.get("upper") or []
+    final_lower=lower_values[-1] if lower_values else None
+    final_upper=upper_values[-1] if upper_values else None
+
+    model_reasons=[
+        {
+            "factor":"Vegetation index trend",
+            "observation":f"NDVI changed {ndvi_change:+.4f} from the first to latest usable Sentinel-2 observation.",
+            "meaning":"A negative NDVI change increases the transparent screening-risk proxy; it does not by itself establish deforestation or a cause.",
+        },
+        {
+            "factor":"Forest-fraction trend",
+            "observation":f"Derived forest fraction changed {forest_change:+.4f} from the first to latest usable observation.",
+            "meaning":"A negative forest-fraction change contributes to the model because the proxy is built from optical vegetation and forest-cover decline.",
+        },
+        {
+            "factor":"Forecast direction",
+            "observation":f"The ensemble trend is {str(p.get('direction') or 'UNKNOWN').lower()} with {str(p.get('strength') or 'unknown').lower()} strength.",
+            "meaning":"Three trend estimators are blended so one fitted line does not determine the forecast by itself.",
+        },
+        {
+            "factor":"Observation quality",
+            "observation":f"{quality:.1f}% optical quality across {len(valid)} usable observations; {len(series.get('errors') or [])} scene read error(s).",
+            "meaning":"Cloud/shadow/snow masking and observation count affect how much confidence should be placed in the optical trend.",
+        },
+    ]
+
+    direction=str(p.get("direction") or "STABLE").upper()
+    forecast_change=p.get("forecast_change")
+    if direction=="INCREASING":
+        what_happening=(
+            f"VanRakshak detects a rising optical screening-risk trend. Current derived risk is {risk_values[-1]:.1f}/100"
+            + (f" and the final projected step is {float(final_projection):.1f}/100." if final_projection is not None else ".")
+        )
+        actions=[
+            {"priority":"HIGH","what":"Run a fresh before/after evidence check","how":"Compare the newest usable Sentinel-2 scene against a clean baseline and review NDVI, NDMI, NBR, fragmentation and candidate polygons.","why":"The forecast is rising and needs spatial confirmation before field escalation."},
+            {"priority":"HIGH","what":"Field-verify the highest-change locations","how":"Use Patrol Planner on verified candidate polygons; collect geotagged photos, access-road observations and signs of cutting, fire, clearing or encroachment.","why":"Optical prediction is a screening signal, not proof of cause or illegality."},
+            {"priority":"MEDIUM","what":"Check environmental and human-pressure context","how":"Review rainfall deficit, temperature anomaly, fire context, soil moisture, roads, settlements, quarries and protected-area status.","why":"These factors help distinguish stress, disturbance and plausible access pressure without assuming causation."},
+            {"priority":"MEDIUM","what":"Recheck after intervention","how":"Load the next cloud-screened scene and compare risk, NDVI, forest fraction and fragmentation against this prediction baseline.","why":"A response is only validated when repeat observations stop worsening."},
+        ]
+    elif direction=="DECREASING":
+        what_happening=(
+            f"VanRakshak detects an easing optical screening-risk trend. Current derived risk is {risk_values[-1]:.1f}/100"
+            + (f" and the final projected step is {float(final_projection):.1f}/100." if final_projection is not None else ".")
+        )
+        actions=[
+            {"priority":"MEDIUM","what":"Verify whether the improvement is real","how":"Compare the next cloud-screened observation and inspect whether NDVI and forest fraction remain stable or improve.","why":"Seasonality or scene quality can mimic recovery."},
+            {"priority":"MEDIUM","what":"Keep active alerts under watch","how":"Review fire, climate, protected-area and human-pressure alerts even if the optical trend is improving.","why":"A lower optical proxy does not rule out other active threats."},
+            {"priority":"ROUTINE","what":"Preserve the current baseline","how":"Keep this forecast and source dates as the reference for the next comparison.","why":"Repeatable baselines make recovery or renewed disturbance measurable."},
+        ]
+    else:
+        what_happening=(
+            f"VanRakshak detects a broadly stable optical screening-risk trend around {risk_values[-1]:.1f}/100"
+            + (f"; the final projected step is {float(final_projection):.1f}/100." if final_projection is not None else ".")
+        )
+        actions=[
+            {"priority":"MEDIUM","what":"Continue satellite monitoring","how":"Add the next cloud-screened observation and rerun the forecast.","why":"A stable trend can still conceal localized change that has not shifted the area-wide proxy."},
+            {"priority":"MEDIUM","what":"Check localized alerts","how":"Review candidate-change, fire, fragmentation, protected-area and human-pressure evidence for hotspots.","why":"Area-wide stability does not mean every location is unchanged."},
+            {"priority":"ROUTINE","what":"Maintain a verification baseline","how":"Retain current NDVI, forest fraction, quality and risk values for the next observation.","why":"This makes future deviations immediately measurable."},
+        ]
+
+    expected_impacts=[
+        {
+            "metric":"Screening-risk trend",
+            "current":round(risk_values[-1],2),
+            "target":"Stable or lower on the next suitable observation",
+            "success_check":"The next forecast should not continue rising after a verified intervention.",
+        },
+        {
+            "metric":"Vegetation condition",
+            "current":f"NDVI change {ndvi_change:+.4f}",
+            "target":"NDVI stable or improving relative to the current baseline",
+            "success_check":"Confirm with the same cloud-screened Sentinel-2 method.",
+        },
+        {
+            "metric":"Forest fraction",
+            "current":f"Change {forest_change:+.4f}",
+            "target":"No further decline in derived forest fraction",
+            "success_check":"Compare the next observation using the same forest-mask threshold.",
+        },
+        {
+            "metric":"Verification quality",
+            "current":f"{quality:.1f}% optical quality",
+            "target":"Maintain adequate cloud-screened quality and at least three usable observations",
+            "success_check":"Do not treat a low-quality scene as proof of recovery or deterioration.",
+        },
+    ]
+
+    forecast_intelligence={
+        "what_is_happening":what_happening,
+        "why_model_is_flagging_it":model_reasons,
+        "recommended_actions":actions,
+        "expected_impacts":expected_impacts,
+        "uncertainty":{
+            "confidence_pct":p.get("confidence_pct"),
+            "forecast_change":forecast_change,
+            "final_interval":{"lower":final_lower,"upper":final_upper},
+            "note":"Confidence describes model fit, observation volume, stability and model agreement. It is not the probability that deforestation will occur.",
+        },
+        "verification_next":[
+            "Re-run the forecast after the next suitable Sentinel-2 observation.",
+            "Use before/after change polygons and fragmentation metrics to localize the trend.",
+            "Cross-check climate, fire, radar and field evidence before assigning a cause.",
+        ],
+        "causation_note":"The reasons above explain why the model is flagging the trend. They do not prove why the forest changed. Probable real-world drivers require evidence-chain and field verification.",
+    }
+
+    return {"location":{"lat":lat,"lon":lon},"period":{"start":start,"end":end},"historical_risk_proxy":risk_values,"dates":dates,"projection":projection,"analysis":{"interpretation":interpretation,"ndvi_change_first_to_latest":ndvi_change,"forest_fraction_change_first_to_latest":forest_change,"latest_observation":dates[-1],"observation_count":len(valid),"scene_read_errors":len(series.get("errors") or []),"optical_quality_pct":round(quality,1),"baseline_mean_ndvi":round(base_nd,4),"baseline_forest_fraction":round(base_fc,4),"current_risk_index":risk_values[-1],"projected_risk_index":final_projection,"model_confidence_pct":p.get("confidence_pct")},"forecast_intelligence":forecast_intelligence,"components":components,"source_series":valid,"source":series.get("source"),"pipeline":["Search real Sentinel-2 L2A scenes in the selected period","Read red/NIR pixels and mask cloud/shadow/snow using SCL","Compute mean NDVI and forest fraction for each observation","Convert decline from the early-period baseline into a 0-100 screening-risk index","Run robust ensemble trend forecasting and uncertainty analysis"],"generated_at":datetime.now(timezone.utc).isoformat(),"label":"AI_ESTIMATE","warning":"Risk index is a transparent screening indicator derived from optical vegetation/forest-fraction decline. It is not a probability of illegal deforestation and should be checked against seasonality, radar and field evidence."}
 
 
 @app.post("/api/intelligence/forest-doctor")

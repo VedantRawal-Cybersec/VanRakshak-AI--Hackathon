@@ -181,7 +181,7 @@ async def check(name, coro, validator=lambda x: x is not None):
         ok=bool(validator(data))
         return {"source":name,"ok":ok,"detail":None if ok else "validator returned false"}
     except Exception as exc:
-        return {"source":name,"ok":False,"detail":str(exc)[:300]}
+        return {"source":name,"ok":False,"detail":str(exc)[:1800]}
 
 async def main():
     earth=EarthSearchAdapter(); cop=CopernicusAdapter(); weather=OpenMeteoAdapter(); soil=SoilGridsAdapter()

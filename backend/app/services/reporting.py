@@ -83,6 +83,27 @@ def investigation_pdf(data: dict) -> bytes:
         if action_plan.get("expected_outcome"):
             story += [Paragraph(str(action_plan.get("expected_outcome")),styles["Muted"])]
 
+    model_quality=data.get("model_quality") or {}
+    if model_quality:
+        cd=model_quality.get("change_detection") or {}
+        cv=model_quality.get("cross_sensor_validation") or {}
+        gt=model_quality.get("ground_truth_classification_metrics") or {}
+        qrows=[
+            ["Validation evidence","Value"],
+            ["Optical valid pixels",str(cd.get("valid_pixels","—"))],
+            ["Cloud-masked fraction",str(cd.get("cloud_masked_fraction","—"))],
+            ["Screening confidence",str(cd.get("screening_confidence","—"))],
+            ["IsolationForest overlap",str(cd.get("isolation_forest_candidate_overlap_fraction","—"))],
+            ["Sentinel-1 corroboration",str(cv.get("status","—"))],
+            ["Sentinel-1 candidate fraction",str(cv.get("sentinel1_candidate_fraction","—"))],
+            ["Ground-truth Precision/Recall/F1/IoU","Not claimed" if not gt.get("available") else "Available"],
+        ]
+        story += [
+            Paragraph("Model quality & validation evidence",styles["Section"]),
+            _table(qrows,header=True),
+            Paragraph(str(gt.get("note") or model_quality.get("data_integrity_rule") or ""),styles["Muted"]),
+        ]
+
     doctor=data.get("forest_doctor") or {}
     if doctor:
         rows=[["Probable driver hypothesis","Relative support"]]+[[x.get("driver",""),f"{x.get('relative_support_pct','—')}%"] for x in (doctor.get("probable_drivers") or [])]

@@ -1350,7 +1350,10 @@ async def evidence_chain_ep(
         doctor["human_pressure_context"]=pctx
         doctor["radar_scene_available"]=radar_available
         doctor["fragmentation_change"]=fchg
-    return {"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
+    bundle={"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
+    live_inputs=_live_risk_inputs(bundle,lat,lon)
+    bundle["action_plan"]=_action_plan_from_evidence(bundle,live_inputs,lat,lon)
+    return bundle
 
 
 
@@ -1409,6 +1412,132 @@ def _live_risk_inputs(bundle: dict, lat: float, lon: float) -> RiskInputs:
         human_pressure=human_pressure,
         model_confidence=_clamp01(confidence),
     )
+
+
+def _action_plan_from_evidence(bundle: dict, inputs: RiskInputs, lat: float, lon: float) -> dict:
+    """Build an operational, evidence-linked response plan without inventing outcomes."""
+    risk=risk_score(inputs)
+    change=bundle.get("change") or {}
+    sources=bundle.get("sources") or {}
+    pctx=pressure_context(sources.get("human_pressure") or {},lat,lon)
+    location=bundle.get("location") or {}
+    place=location.get("place") or "selected area"
+    candidate_area=float(change.get("candidate_area_ha") or 0.0)
+    center=_geojson_centroid(change.get("geojson") or {}) if change.get("geojson") else None
+    if center:
+        change_where=f"Detected change footprint near {center[0]:.5f}, {center[1]:.5f} within {place}"
+    else:
+        change_where=f"Selected AOI around {lat:.5f}, {lon:.5f} ({place})"
+
+    actions=[]
+    def add(priority,what,where,how,timeframe,why,expected_impact,success_metric):
+        actions.append({
+            "priority":priority,
+            "what":what,
+            "where":where,
+            "how":how,
+            "timeframe":timeframe,
+            "why":why,
+            "expected_impact":expected_impact,
+            "success_metric":success_metric,
+        })
+
+    if candidate_area>0 or inputs.ndvi_drop>=0.08:
+        area_label=f"{candidate_area:.2f} ha" if candidate_area>0 else "the detected vegetation-change footprint"
+        add(
+            "URGENT" if (risk.get("score") or 0)>=50 else "HIGH",
+            "Ground-verify the detected vegetation change",
+            change_where,
+            "Open Before/After, inspect the evidence chain, generate the incident report, then route the patrol team to the candidate polygon and capture geotagged field evidence.",
+            "Within 24 hours",
+            "Satellite screening indicates vegetation loss/stress that needs field confirmation before enforcement or remediation decisions.",
+            f"Confirm or reject the current {area_label} satellite signal and create a defensible ground-truth record.",
+            f"Field verification completed; on the next suitable satellite scene the candidate footprint should not expand beyond the current {area_label} if the disturbance has stopped.",
+        )
+
+    if inputs.fire_signal>0.20:
+        fire_rows=(sources.get("fire") or {}).get("data") or []
+        add(
+            "URGENT",
+            "Verify active fire / heat signals and prepare rapid response",
+            f"Fire-context points in and around the selected AOI ({lat:.5f}, {lon:.5f})",
+            "Open Fire & Heat, confirm the source type, attach the highest-priority points to the patrol route, notify the patrol/fire team, and re-check wind, humidity and rain before dispatch.",
+            "Immediately / next patrol cycle",
+            f"Fire intelligence is contributing to the current warning model ({len(fire_rows)} returned context points).",
+            "Earlier confirmation of a real thermal event and faster field escalation when a fire is present.",
+            "After response, target zero new verified thermal detections in the AOI and no increase in burn/change indicators on the next observation.",
+        )
+
+    if inputs.human_pressure>=0.25 or pctx.get("nearest_road_km") is not None or pctx.get("nearest_settlement_km") is not None:
+        proximity=[]
+        if pctx.get("nearest_road_km") is not None: proximity.append(f"road {pctx['nearest_road_km']:.2f} km")
+        if pctx.get("nearest_settlement_km") is not None: proximity.append(f"settlement {pctx['nearest_settlement_km']:.2f} km")
+        add(
+            "HIGH",
+            "Prioritize access-route and settlement-edge patrol checks",
+            change_where + (f" • nearest mapped {'; '.join(proximity)}" if proximity else ""),
+            "Use the Patrol Optimizer to visit detected-change centroids first, then mapped road/quarry/settlement access points. Record whether clearing, vehicles, extraction or boundary breaches are actually present.",
+            "Within 24–48 hours",
+            "Mapped human-pressure features increase the value of targeted field verification, but OSM completeness varies.",
+            "Concentrates patrol time on the most plausible access routes instead of uniform coverage.",
+            "All top-priority access points visited and documented; repeat alerts should not move outward from the currently detected footprint.",
+        )
+
+    if inputs.protected_area:
+        add(
+            "URGENT",
+            "Escalate the incident through the protected-area workflow",
+            change_where,
+            "Attach the evidence-chain report, coordinates, before/after imagery and patrol route to the responsible forest/protected-area officer. Preserve timestamps and source links.",
+            "Same day",
+            "The selected location is reported inside protected-area context, increasing conservation sensitivity.",
+            "Faster evidence handoff and a clearer chain of custody for the responsible authority.",
+            "Incident package acknowledged by the responsible team with location, imagery, evidence sources and assigned field action.",
+        )
+
+    if inputs.rainfall_deficit_pct>=25 or inputs.temp_anomaly_c>=1.5:
+        add(
+            "MEDIUM",
+            "Separate climate stress from direct clearing before final classification",
+            f"Selected AOI and surrounding vegetation buffer near {lat:.5f}, {lon:.5f}",
+            "Review temperature/rainfall anomaly, soil moisture and evapotranspiration together with NDVI. Re-check on the next cloud-free observation before labelling climate-driven browning as clearing.",
+            "Re-check within 3–7 days",
+            "Heat or rainfall-deficit signals can reduce vegetation indices without direct tree removal.",
+            "Reduces avoidable false escalation and improves the interpretation of vegetation stress.",
+            "NDVI, rainfall and soil-moisture direction are re-evaluated together; classification is updated only when the evidence agrees.",
+        )
+
+    if inputs.fragmentation_change>=0.15:
+        add(
+            "HIGH",
+            "Protect corridor and forest-edge connectivity around the disturbance",
+            change_where,
+            "Inspect new edges/patch breaks on the change layer, prioritize narrow connectors and core-forest boundaries in the patrol route, and mark the same geometry for follow-up comparison.",
+            "Within 48 hours",
+            "Fragmentation can create lasting ecological impact even when total affected area is modest.",
+            "Focuses intervention on preventing further edge expansion and isolation of forest patches.",
+            "Next comparison shows no worsening in patch/edge fragmentation metrics around the same geometry.",
+        )
+
+    add(
+        "ROUTINE",
+        "Schedule evidence refresh and satellite re-check",
+        f"Same selected AOI: {lat:.5f}, {lon:.5f}",
+        "Refresh provider health, reload the newest cloud-screened scene, rerun the evidence chain, and compare warning score, NDVI, candidate area, fire context and fragmentation against this baseline.",
+        "Next suitable satellite observation",
+        "A response is only complete when the next observation verifies whether conditions stabilized, improved or worsened.",
+        "Creates a measurable before/after audit trail for the intervention.",
+        "No unexplained increase in candidate area or fragmentation; no new verified fire signal; NDVI is stable or improving relative to this baseline.",
+    )
+
+    return {
+        "label":"AI_ESTIMATE",
+        "risk_before":risk,
+        "selected_area":{"lat":lat,"lon":lon,"place":place,"candidate_area_ha":round(candidate_area,3)},
+        "actions":actions,
+        "expected_outcome":"If the recommended response is effective, later observations should show a stable or smaller candidate-change footprint, no new verified fire signal, stable/improving NDVI, and no worsening fragmentation. These are validation targets, not guaranteed impact percentages.",
+        "method":"Operational recommendations are triggered only by evidence-derived risk inputs. Expected impacts are expressed as measurable success targets rather than fabricated outcome claims.",
+    }
 
 
 def _geojson_centroid(feature: dict):

@@ -500,7 +500,7 @@ function emailAlertMessage(){
   const text=alertDraft();if(!text)return toast('Generate the alert first');
   const email=($('alertEmail').value||'').trim();
   const subject=state.alert?.subject||'VanRakshak Patrol Alert';
-  window.location.href=`mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+  window.open(`mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`,'_blank','noopener');
 }
 
 async function loadTime(){if(!ensureLocation())return;if(state.timeTimer){clearInterval(state.timeTimer);state.timeTimer=null;$('playTime').textContent='▶ Play'}try{validateCompareDates($('timeStart').value,$('timeEnd').value);const d=await api(`/api/time-machine?lat=${state.lat}&lon=${state.lon}&start=${$('timeStart').value}&end=${$('timeEnd').value}&limit=70`);state.timeScenes=d.scenes||[];state.timeIndex=0;$('timeline').innerHTML=state.timeScenes.length?state.timeScenes.map((x,i)=>`<button class="timeline-item" data-scene="${i}"><b>${esc(sceneDateLabel(x,x.requested_date))}</b><small>Cloud ${x.cloud_cover??'—'}%</small></button>`).join(''):'<div class="empty-state">No suitable scenes returned.</div>';$$('[data-scene]').forEach(btn=>btn.onclick=()=>showTimeScene(Number(btn.dataset.scene)));if(state.timeScenes.length)showTimeScene(0)}catch(e){$('timeline').innerHTML=`<div class="empty-state">${esc(e.message)}</div>`}}

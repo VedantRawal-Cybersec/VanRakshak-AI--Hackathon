@@ -1,6 +1,6 @@
 from __future__ import annotations
 import asyncio, json, sys
-from app.main import predict_location_ep, remote_change_ep, patrol_road_route, _geojson_centroid
+from app.main import predict_location_ep, remote_change_ep, patrol_road_route, _geojson_centroid, compose_alert_ep
 from app.models import PatrolRequest
 
 LAT=12.3375
@@ -82,6 +82,23 @@ async def main():
             result["checks"].append({"name":"detected-hotspot patrol execution","ok":True,"status":"NO_PATROL_TARGETS","stops":0})
     except Exception as exc:
         result["checks"].append({"name":"patrol change-analysis input","ok":False,"error":str(exc)[:1200]})
+
+    try:
+        alert=await compose_alert_ep(LAT,LON,"Kodagu Forest Region",BEFORE,AFTER)
+        msg=alert.get("message") or ""
+        required=["WHERE:","WHAT WAS DETECTED:","WHEN:","HOW IT MAY BE HAPPENING:","PATROL FIRST PRIORITY:"]
+        ok=all(x in msg for x in required) and alert.get("top_patrol_target",{}).get("lat") is not None
+        result["checks"].append({
+            "name":"patrol alert composition",
+            "ok":bool(ok),
+            "severity":alert.get("severity"),
+            "warning_score":alert.get("warning_score"),
+            "candidate_area_ha":(alert.get("change") or {}).get("candidate_area_ha"),
+            "candidate_polygons":(alert.get("change") or {}).get("candidate_polygons"),
+            "top_target":alert.get("top_patrol_target"),
+        })
+    except Exception as exc:
+        result["checks"].append({"name":"patrol alert composition","ok":False,"error":str(exc)[:1200]})
 
     print(json.dumps(result,indent=2))
     return 0 if all(x.get("ok") for x in result["checks"]) else 1

@@ -79,7 +79,7 @@ async function toggleLayer(def,enabled,checkbox){if(!def)return;state.layerReque
   else if(def.render==='gfw'){let q=`/api/map/gfw-layer?dataset=${encodeURIComponent(def.dataset)}&confidence=${f.confidence}`;if(f.start)q+=`&start_date=${f.start}`;if(f.end)q+=`&end_date=${f.end}`;const s=await api(q);addRaster(def.id,s.tile_url,.76,{maxzoom:s.max_zoom,attribution:s.attribution});toast(`${def.label} enabled`)}
   else if(def.render==='gibs'){const d=f.end||isoDate(new Date(Date.now()-2*86400000));const s=await api(`/api/gibs/layer/${encodeURIComponent(def.gibs_layer)}?date=${encodeURIComponent(d)}`);addRaster(def.id,s.tile_url,.84,{maxzoom:s.max_zoom,attribution:s.attribution});toast(`${def.label} enabled from NASA GIBS • ${s.date}`)}
   else if(def.render==='earth_engine'){
-    try{const s=await api(`/api/earth-engine/layer/${encodeURIComponent(def.ee_layer)}?lat=${state.lat}&lon=${state.lon}`);addRaster(def.id,s.tile_url,.72);toast(`${def.label} enabled via Earth Engine`)}
+    try{const s=await api(`/api/earth-engine/layer/${encodeURIComponent(def.ee_layer)}?lat=${state.lat}&lon=${state.lon}`);addRaster(def.id,s.tile_url,.72,{maxzoom:s.max_zoom,attribution:s.attribution});toast(s.fallback_used?`${def.label}: ${s.source||'public fallback'} active`:`${def.label} enabled via Earth Engine`)}
     catch(eeErr){
       if(['dynamic_world_trees','dynamic_world_label'].includes(def.ee_layer)){
         const s=await api('/api/map/gfw-layer?dataset=umd_tree_cover_density_2000&confidence=high');addRaster(def.id,s.tile_url,.7);toast(`${def.label}: GFW tree-cover fallback active`)

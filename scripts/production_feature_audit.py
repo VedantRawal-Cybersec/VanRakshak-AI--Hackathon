@@ -6,7 +6,7 @@ BASE=os.getenv("BASE_URL","https://vanrakshak-api-production-3e28.up.railway.app
 EXPECTED_SHA=os.getenv("EXPECTED_SHA","").strip()
 LAT="12.3375"; LON="75.8069"
 BEFORE="2025-11-06"; AFTER="2026-02-04"
-START="2025-11-01"; END="2026-02-10"
+START="2025-01-01"; END="2026-09-20"
 
 def call(method,path,payload=None,timeout=240,retries=3):
     url=BASE+path
@@ -60,7 +60,7 @@ evidence_path=q("/api/analysis/evidence-chain",lat=LAT,lon=LON,place="Kodagu",be
 vegetation_path=q("/api/analysis/vegetation-series",lat=LAT,lon=LON,start=START,end=END,max_observations=5,cloud_lt=60,radius_km=.5)
 recovery_path=q("/api/analysis/recovery-location",lat=LAT,lon=LON,start=START,end=END,max_observations=5,cloud_lt=60,radius_km=.5)
 corr_path=q("/api/analysis/climate-forest-correlation",lat=LAT,lon=LON,start=START,end=END,max_observations=5,cloud_lt=60,radius_km=.5)
-predict_path=q("/api/intelligence/predict-location",lat=LAT,lon=LON,start=START,end=END,max_observations=5,cloud_lt=60)
+predict_path=q("/api/intelligence/predict-location",lat=LAT,lon=LON,start=START,end=END,max_observations=10,cloud_lt=60)
 patrol_path=q("/api/patrol/live",lat=LAT,lon=LON,place="Kodagu",before_date=BEFORE,after_date=AFTER,max_points=3)
 whatif_path=q("/api/intelligence/what-if-location",lat=LAT,lon=LON,place="Kodagu",before_date=BEFORE,after_date=AFTER,temperature_delta_c=1,rainfall_delta_pct=10,fire_delta=.1,ndvi_delta=.05)
 query_live_path=q("/api/query/live",q="show deforestation fire risk and patrol report",lat=LAT,lon=LON,place="Kodagu",before_date=BEFORE,after_date=AFTER)
@@ -147,11 +147,16 @@ tests.append(("15 Smart Warning System",lambda: (
     (cached_get(live_path,300))
 )))
 def threat_prediction_test():
-    b=cached_get(predict_path,240)
+    b=cached_get(predict_path,300)
     projected=(b.get("projection") or {}).get("projected_values") or b.get("projected_values") or []
     if not projected:
         raise AssertionError(b)
-    return f"projected={len(projected)}"
+    bt=(b.get("analysis") or {}).get("temporal_backtest") or {}
+    if int((b.get("analysis") or {}).get("observation_count") or 0)>=6 and not bt.get("available"):
+        raise AssertionError({"message":"real temporal holdout backtest missing despite sufficient Sentinel observations","backtest":bt})
+    if bt.get("available"):
+        return f"projected={len(projected)} holdout_mae={bt.get('mae')} rmse={bt.get('rmse')}"
+    return f"projected={len(projected)} backtest={bt.get('reason','insufficient observations')}"
 tests.append(("16 Threat Prediction",threat_prediction_test))
 tests.append(("17 Threat Cascade Engine",lambda: (
     (lambda b: f"nodes={len((b.get('cascade') or {}).get('chain') or [])}" if "cascade" in b else (_ for _ in ()).throw(AssertionError(b)))
@@ -193,10 +198,20 @@ tests.append(("26 Forest Fragmentation Analysis",lambda: (
     (lambda b: f"patch_delta={((b.get('fragmentation') or {}).get('change') or {}).get('patch_count_delta')}" if (b.get("fragmentation") or {}).get("change") is not None else (_ for _ in ()).throw(AssertionError(b)))
     (cached_get(remote_path,220))
 )))
-tests.append(("27 Carbon Loss Calculator",lambda: (
-    (lambda b: f"co2e={(b.get('carbon') or {}).get('co2e_t') or (b.get('carbon') or {}).get('estimated_co2e_t')}" if b.get("carbon") else (_ for _ in ()).throw(AssertionError("carbon unavailable")))
-    (cached_get(live_path,300))
-)))
+def carbon_integrity_test():
+    b=cached_get(evidence_path,300)
+    local=b.get("carbon")
+    ref=b.get("carbon_reference")
+    if local:
+        if local.get("data_scope")!="SELECTED_LOCATION":
+            raise AssertionError({"message":"local carbon lacks selected-location scope","carbon":local})
+        return f"local_co2e={local.get('estimated_co2e_t')} class={local.get('estimate_class')}"
+    if ref:
+        if ref.get("data_scope")!="REGIONAL_REFERENCE_NOT_LOCAL_MEASUREMENT" or ref.get("estimate_class")!="BROAD_REFERENCE_CONTEXT_ONLY":
+            raise AssertionError({"message":"broad carbon reference is not safely isolated from local impact","carbon_reference":ref})
+        return f"local=unavailable context_only_co2e={ref.get('estimated_co2e_t')}"
+    raise AssertionError("Neither location-specific carbon nor explicitly labelled reference context is available")
+tests.append(("27 Carbon Loss Calculator",carbon_integrity_test))
 tests.append(("28 Climate-Forest Correlation",lambda: (
     (lambda b: f"observations={len(b.get('observations') or [])}" if len(b.get("observations") or [])>=3 else (_ for _ in ()).throw(AssertionError(b)))
     (cached_get(corr_path,300))

@@ -1468,6 +1468,7 @@ async def evidence_chain_ep(
     protected_ctx = (sources.get("protected_area") or {}).get("data") or {}
     protected = protected_ctx.get("inside") if isinstance(protected_ctx, dict) and "inside" in protected_ctx else None
     carbon=None
+    carbon_reference=None
     if settings.google_cloud_project:
         try:
             pa=await asyncio.to_thread(ee.sample,"wdpa_protected",lat,lon,3650)
@@ -1480,29 +1481,29 @@ async def evidence_chain_ep(
                 density=cd.get("value")
                 if density is not None:
                     tc=float(change["candidate_area_ha"])*float(density)
-                    carbon={"reference_carbon_density_tC_per_ha":density,"estimated_carbon_loss_tC":round(tc,2),"estimated_co2e_t":round(tc*44/12,2),"uncertainty_note":"Reference carbon-density layer circa 2010; this is an order-of-magnitude impact estimate, not a field inventory.","label":"AI_ESTIMATE"}
+                    carbon={"reference_carbon_density_tC_per_ha":density,"estimated_carbon_loss_tC":round(tc,2),"estimated_co2e_t":round(tc*44/12,2),"uncertainty_note":"Location-specific mapped carbon-density reference circa 2010 multiplied by the detected candidate area. It is not a field inventory.","label":"AI_ESTIMATE","estimate_class":"LOCATION_SPECIFIC_MAPPED_REFERENCE","data_scope":"SELECTED_LOCATION","density_source":"WCMC carbon-density layer via Google Earth Engine","source_url":ee.source_url}
             except Exception:
                 carbon=None
     if carbon is None and change and change.get("candidate_area_ha") is not None:
-        # Credential-free scientific fallback: broad IPCC Tier-1 reference for
-        # continental Asian tropical moist forest. It is intentionally labelled
-        # as a reference-based estimate, never as a local biomass measurement.
+        # Keep a broad Tier-1 reference available for context, but do NOT expose
+        # it as the selected area's local carbon measurement.
         try:
             ref = carbon_estimate(CarbonRequest(
                 area_ha=max(0.001, float(change["candidate_area_ha"])),
                 biomass_t_per_ha=182.0,
                 uncertainty_pct=75.0,
             ))
-            carbon={
+            carbon_reference={
                 **ref,
                 "reference_biomass_density_t_dry_matter_per_ha":182.0,
                 "density_source":"IPCC Good Practice Guidance for LULUCF, Table 3A.1.2 — continental Asia tropical moist forest (short dry season)",
                 "source_url":"https://www.ipcc-nggip.iges.or.jp/public/gpglulucf/gpglulucf_files/Chp3/Anx_3A_1_Data_Tables.pdf",
-                "estimate_class":"BROAD_REFERENCE_FALLBACK",
-                "warning":"Broad Tier-1 reference estimate, not a site-specific GEDI/field biomass measurement. Replace automatically when a location-specific carbon-density provider is configured.",
+                "estimate_class":"BROAD_REFERENCE_CONTEXT_ONLY",
+                "data_scope":"REGIONAL_REFERENCE_NOT_LOCAL_MEASUREMENT",
+                "warning":"Context-only Tier-1 reference. It is not displayed as selected-area carbon impact unless a location-specific mapped/field biomass source is available.",
             }
         except Exception:
-            carbon=None
+            carbon_reference=None
 
     if sar_change:
         sources["sar_change"]={
@@ -1536,7 +1537,7 @@ async def evidence_chain_ep(
         doctor["human_pressure_context"]=pctx
         doctor["radar_scene_available"]=radar_available
         doctor["fragmentation_change"]=fchg
-    bundle={"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
+    bundle={"location":{"lat":lat,"lon":lon,"place":place},"change":change,"sar_change":sar_change,"climate":climate,"carbon":carbon,"carbon_reference":carbon_reference,"protected_area":protected,"evidence_chain":chain,"warning":warning,"forest_doctor":doctor,"sources":sources}
     live_inputs=_live_risk_inputs(bundle,lat,lon)
     bundle["action_plan"]=_action_plan_from_evidence(bundle,live_inputs,lat,lon)
     return bundle

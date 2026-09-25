@@ -134,3 +134,41 @@ test('historical Landsat before-after comparisons render real tiles', async ({ r
     }
   }
 });
+
+
+test('production serves latest Alerts and prediction runtime', async ({ page, request }) => {
+  test.setTimeout(240000);
+
+  await page.goto('/');
+  await expect(page.locator('#sendAlertBtn')).toBeVisible();
+  await page.locator('[data-nav="alerts"]').click();
+  await expect(page.locator('#alertModal')).toBeVisible();
+  await page.locator('#closeAlert').click();
+
+  const alertQ=new URLSearchParams({
+    lat:'12.3375',lon:'75.8069',place:'Kodagu Forest Region',
+    before_date:'2025-11-06',after_date:'2026-02-04'
+  });
+  const alertRes=await request.get('/api/alerts/compose?'+alertQ.toString(),{timeout:180000});
+  const alertText=await alertRes.text();
+  console.log('ALERT_STATUS',alertRes.status(),'ALERT_BODY',alertText.slice(0,1800));
+  expect(alertRes.ok(),alertText).toBeTruthy();
+  const alert=JSON.parse(alertText);
+  expect(alert.label).toBe('DERIVED_FROM_REAL_EVIDENCE');
+  expect(alert.top_patrol_target?.lat).not.toBeNull();
+  expect(alert.message).toContain('WHERE:');
+  expect(alert.message).toContain('WHAT WAS DETECTED:');
+  expect(alert.message).toContain('WHEN:');
+  expect(alert.message).toContain('HOW IT MAY BE HAPPENING:');
+  expect(alert.message).toContain('PATROL FIRST PRIORITY:');
+
+  const predRes=await request.post('/api/intelligence/predict',{
+    data:{values:[20,24,28,31,35],steps:3,floor:0,ceiling:100}
+  });
+  const predText=await predRes.text();
+  expect(predRes.ok(),predText).toBeTruthy();
+  const pred=JSON.parse(predText);
+  expect(pred.analysis?.confidence_pct).not.toBeNull();
+  expect(pred.diagnostics?.models?.theil_sen_robust?.weight).toBeGreaterThan(0);
+  expect(pred.projected_values).toHaveLength(3);
+});

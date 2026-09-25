@@ -1620,6 +1620,8 @@ async def evidence_chain_ep(
             ))
             carbon_reference={
                 **ref,
+                "estimated_carbon_loss_tC":ref.get("carbon_t"),
+                "estimated_co2e_t":ref.get("co2e_t"),
                 "reference_biomass_density_t_dry_matter_per_ha":182.0,
                 "density_source":"IPCC Good Practice Guidance for LULUCF, Table 3A.1.2 — continental Asia tropical moist forest (short dry season)",
                 "source_url":"https://www.ipcc-nggip.iges.or.jp/public/gpglulucf/gpglulucf_files/Chp3/Anx_3A_1_Data_Tables.pdf",

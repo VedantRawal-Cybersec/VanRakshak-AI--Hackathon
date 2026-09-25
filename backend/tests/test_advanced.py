@@ -81,3 +81,13 @@ def test_patrol_priority_matrix_ordering():
     assert out["ordering_mode"]=="ROAD_TIME_PRIORITY"
     assert out["route"][0]["id"]=="far-critical"
     assert out["route"][0]["estimated_road_leg_min"]==6.0
+
+def test_prediction_accepts_duplicate_day_observations():
+    out=predict(ThreatPredictionRequest(
+        values=[10,12,13,14],
+        dates=["2026-01-01","2026-01-01","2026-02-01","2026-03-01"],
+        steps=2,
+    ))
+    assert len(out["projected_values"])==2
+    assert len(out["forecast_dates"])==2
+    assert out["analysis"]["cadence_days"] > 0

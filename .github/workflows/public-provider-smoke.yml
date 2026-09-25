@@ -10,6 +10,10 @@ on:
       - 'backend/app/adapters/gibs.py'
       - 'backend/app/adapters/nasa_power.py'
       - 'backend/app/adapters/planetary_computer.py'
+      - 'backend/app/adapters/usgs_landsat.py'
+      - 'backend/app/adapters/gcp_landsat.py'
+      - 'backend/app/services/historical_imagery.py'
+      - 'backend/app/services/historical_landsat_tiles.py'
       - 'backend/app/config.py'
   workflow_dispatch:
   schedule:

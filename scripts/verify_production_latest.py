@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json, urllib.request, urllib.parse, sys
 
-BASE="https://vanrakshak-api-production-3e28.up.railway.app"
+# Re-run after disabling Railway config-as-code override for exact runtime bootstrap.\nBASE="https://vanrakshak-api-production-3e28.up.railway.app"
 
 def get(path, timeout=180):
     with urllib.request.urlopen(BASE+path, timeout=timeout) as r:

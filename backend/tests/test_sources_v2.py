@@ -57,10 +57,15 @@ def test_titiler_satellite_modes_use_asset_names_and_256_tiles():
         q=parse_qs(urlparse(spec["tile_url"]).query)
         assert q.get("tilesize")==["256"]
         assert spec["item_id"]=="S2-test"
-    assert parse_qs(urlparse(earth.tile_spec(item,"ndvi")["tile_url"]).query)["expression"]==["(nir-red)/(nir+red)"]
-    assert parse_qs(urlparse(earth.tile_spec(item,"ndmi")["tile_url"]).query)["expression"]==["(nir-swir16)/(nir+swir16)"]
-    assert parse_qs(urlparse(earth.tile_spec(item,"nbr")["tile_url"]).query)["expression"]==["(nir-swir22)/(nir+swir22)"]
-    assert parse_qs(urlparse(earth.tile_spec(item,"ndwi")["tile_url"]).query)["expression"]==["(green-nir)/(green+nir)"]
+    ndvi=parse_qs(urlparse(earth.tile_spec(item,"ndvi")["tile_url"]).query)
+    ndmi=parse_qs(urlparse(earth.tile_spec(item,"ndmi")["tile_url"]).query)
+    nbr=parse_qs(urlparse(earth.tile_spec(item,"nbr")["tile_url"]).query)
+    ndwi=parse_qs(urlparse(earth.tile_spec(item,"ndwi")["tile_url"]).query)
+    assert ndvi["assets"]==["red","nir"] and ndvi["expression"]==["(b2-b1)/(b2+b1)"]
+    assert ndmi["assets"]==["nir","swir16"] and ndmi["expression"]==["(b1-b2)/(b1+b2)"]
+    assert nbr["assets"]==["nir","swir22"] and nbr["expression"]==["(b1-b2)/(b1+b2)"]
+    assert ndwi["assets"]==["green","nir"] and ndwi["expression"]==["(b1-b2)/(b1+b2)"]
+    assert all(q["asset_as_band"]==["true"] for q in (ndvi,ndmi,nbr,ndwi))
 
 
 def test_nasa_power_normalizes_daily_climate_schema(monkeypatch):

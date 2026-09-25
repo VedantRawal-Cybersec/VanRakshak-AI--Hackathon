@@ -140,13 +140,13 @@ class EarthSearchAdapter(BaseAdapter):
         if mode == "true_color":
             params = [("url", item_url), ("assets", "visual"), ("resampling", "bilinear"), ("tilesize", "256")]
         elif mode == "ndvi":
-            params = common + [("assets", "red"), ("assets", "nir"), ("expression", "(nir-red)/(nir+red)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
+            params = common + [("assets", "red"), ("assets", "nir"), ("expression", "(b2-b1)/(b2+b1)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
         elif mode == "ndmi":
-            params = common + [("assets", "nir"), ("assets", "swir16"), ("expression", "(nir-swir16)/(nir+swir16)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
+            params = common + [("assets", "nir"), ("assets", "swir16"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
         elif mode == "nbr":
-            params = common + [("assets", "nir"), ("assets", "swir22"), ("expression", "(nir-swir22)/(nir+swir22)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
+            params = common + [("assets", "nir"), ("assets", "swir22"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
         elif mode == "ndwi":
-            params = common + [("assets", "green"), ("assets", "nir"), ("expression", "(green-nir)/(green+nir)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
+            params = common + [("assets", "green"), ("assets", "nir"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
         elif mode == "false_color":
             params = [("url", item_url), ("assets", "nir"), ("assets", "red"), ("assets", "green"), ("asset_as_band", "true"), ("rescale", "0,5000"), ("resampling", "bilinear"), ("tilesize", "256")]
         else:

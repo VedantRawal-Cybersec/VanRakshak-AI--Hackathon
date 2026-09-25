@@ -21,6 +21,7 @@ def test_earth_search_tile_spec_ndvi():
     assert spec["mode"]=="ndvi"
     assert "assets=red" in spec["tile_url"]
     assert "assets=nir" in spec["tile_url"]
+    assert "expression=%28b2-b1%29%2F%28b2%2Bb1%29" in spec["tile_url"]
     assert spec["resolution_m"]==10
 
 

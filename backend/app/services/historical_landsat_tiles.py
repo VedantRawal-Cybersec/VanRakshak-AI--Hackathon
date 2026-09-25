@@ -1,5 +1,7 @@
 from __future__ import annotations
 from io import BytesIO
+from collections import OrderedDict
+from threading import Lock
 import re
 import numpy as np
 import rasterio
@@ -11,6 +13,27 @@ from PIL import Image
 
 class HistoricalTileError(RuntimeError):
     pass
+
+
+_TILE_CACHE: OrderedDict[tuple,bytes]=OrderedDict()
+_TILE_CACHE_LOCK=Lock()
+_TILE_CACHE_MAX=256
+
+
+def _cache_get(key: tuple) -> bytes | None:
+    with _TILE_CACHE_LOCK:
+        value=_TILE_CACHE.get(key)
+        if value is not None:
+            _TILE_CACHE.move_to_end(key)
+        return value
+
+
+def _cache_put(key: tuple,value: bytes):
+    with _TILE_CACHE_LOCK:
+        _TILE_CACHE[key]=value
+        _TILE_CACHE.move_to_end(key)
+        while len(_TILE_CACHE)>_TILE_CACHE_MAX:
+            _TILE_CACHE.popitem(last=False)
 
 
 def parse_mtl(text: str) -> dict[str,str]:
@@ -113,6 +136,10 @@ def _palette(index: np.ndarray,valid: np.ndarray,mode: str):
 
 
 def render_png(asset_urls: dict[str,str],metadata_text: str,mode: str,z: int,x: int,y: int) -> bytes:
+    cache_key=(tuple(sorted(asset_urls.items())),mode,int(z),int(x),int(y))
+    cached=_cache_get(cache_key)
+    if cached is not None:
+        return cached
     meta=parse_mtl(metadata_text)
     names={
         "true_color":["red","green","blue"],
@@ -142,4 +169,6 @@ def render_png(asset_urls: dict[str,str],metadata_text: str,mode: str,z: int,x: 
         rgba=_palette(index,valid,mode)
     buf=BytesIO()
     Image.fromarray(rgba,"RGBA").save(buf,format="PNG",optimize=True)
-    return buf.getvalue()
+    result=buf.getvalue()
+    _cache_put(cache_key,result)
+    return result

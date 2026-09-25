@@ -673,6 +673,104 @@ async function doSearch(){const q=$('searchBox').value.trim();if(!q)return;try{c
 async function generateReport(){if(!ensureLocation())return;try{toast('Generating source-backed PDF report…',5000);const url=`/api/report/investigation?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent($('beforeDate').value)}&after_date=${encodeURIComponent($('afterDate').value)}`;const r=await fetch(url);if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);const blob=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vanrakshak-investigation-report.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1200);toast('Investigation report generated')}catch(e){toast('Report: '+String(e.message).slice(0,170))}}
 
 function predictionMetric(label,value,sub=''){return `<article class="metric-card"><small>${esc(label)}</small><strong>${esc(value)}</strong><em>${esc(sub)}</em></article>`}
+function predictionExplainRow(title,text,meta=''){
+  return `<div class="prediction-explain-row"><b>${esc(title)}</b><p>${esc(text||'Unavailable')}</p>${meta?`<small>${esc(meta)}</small>`:''}</div>`;
+}
+function predictionActionRow(a,i){
+  return `<div class="prediction-action-row"><span>${i+1}</span><div><b>${esc(a.what||a.priority||'Action')}</b><p>${esc(a.how||a.plan||'Review source-backed evidence and verify conditions.')}</p>${a.where?`<small>WHERE • ${esc(a.where)}</small>`:''}${a.why?`<small>WHY • ${esc(a.why)}</small>`:''}${a.timeframe?`<small>WHEN • ${esc(a.timeframe)}</small>`:''}</div></div>`;
+}
+function predictionImpactRow(x){
+  return `<div class="prediction-impact-row"><div><b>${esc(x.metric||x.label||'Impact target')}</b><small>${esc(x.current==null?'Current value unavailable':String(x.current))}</small></div><p>${esc(x.target||x.expected_impact||'Stable or improving on follow-up verification.')}</p>${x.success_check?`<em>Success check • ${esc(x.success_check)}</em>`:''}</div>`;
+}
+function resetPredictionNarrative(message='Run Analyze Selected Forest to generate operational prediction intelligence.'){
+  ['predictionWhat','predictionWhy','predictionActions','predictionImpact','predictionConfidence'].forEach(id=>{const el=$(id);if(el)el.innerHTML=`<div class="empty-state">${esc(message)}</div>`});
+}
+function renderPredictionIntelligence(d,useLocation){
+  const p=d.projection||d,a=p.analysis||{},fi=d.forecast_intelligence||{},ev=state.evidence||{},evChange=ev.change||{},warning=ev.warning||{};
+  const what=$('predictionWhat'),why=$('predictionWhy'),actionsEl=$('predictionActions'),impactEl=$('predictionImpact'),confidenceEl=$('predictionConfidence');
+  if(!what||!why||!actionsEl||!impactEl||!confidenceEl)return;
+
+  if(!useLocation){
+    const latest=a.latest_value,final=a.forecast_final;
+    what.innerHTML=predictionExplainRow(
+      'Numerical series projection',
+      a.summary||`The supplied series is ${String(a.direction||'stable').toLowerCase()} and projects from ${latest??'—'} to ${final??'—'}.`,
+      'This mode only understands the numbers you entered; it has no forest, climate, fire or field context.'
+    );
+    why.innerHTML=[
+      predictionExplainRow('Trend direction',`${a.direction||'UNKNOWN'} • ${a.strength||'UNKNOWN'} strength`,`Trend ${p.trend_per_step!=null?fmt(p.trend_per_step,3):'—'} per step`),
+      predictionExplainRow('Model agreement',`Confidence ${a.confidence_pct!=null?fmt(a.confidence_pct,0)+'%':'—'} across ${a.observations||0} observations.`,'Confidence is model quality, not event probability.')
+    ].join('');
+    actionsEl.innerHTML=predictionActionRow({what:'Use a real selected-forest analysis before operational action',how:'Run Analyze Selected Forest so VanRakshak can use Sentinel-2 observations and current evidence context.',why:'A user-entered number series cannot establish environmental cause or patrol priority.'},0);
+    impactEl.innerHTML=predictionImpactRow({metric:'Series projection',current:latest??'—',target:'Use only as a mathematical trend scenario',success_check:'Validate against measured forest observations before decisions.'});
+    confidenceEl.innerHTML=predictionExplainRow('Limitation','No geographic or environmental evidence is attached to this custom series.','Operational recommendations are intentionally withheld until a selected forest is analyzed.');
+    return;
+  }
+
+  const currentRisk=d.analysis?.current_risk_index;
+  const projectedRisk=d.analysis?.projected_risk_index;
+  const changeText=evChange.candidate_area_ha!=null
+    ? `Current evidence also screens ${fmt(evChange.candidate_area_ha,2)} ha of candidate change with NDVI Δ ${evChange.mean_ndvi_change!=null?fmt(evChange.mean_ndvi_change,3):'—'}.`
+    : 'No complete candidate-change area is available from the current evidence window.';
+  what.innerHTML=[
+    predictionExplainRow('Forecast situation',fi.what_is_happening||d.analysis?.interpretation||a.summary||'Prediction complete.',`Current risk ${currentRisk!=null?fmt(currentRisk,1)+'/100':'—'} • projected ${projectedRisk!=null?fmt(projectedRisk,1)+'/100':'—'}`),
+    predictionExplainRow('Current selected-area evidence',changeText,warning.score!=null?`Evidence warning ${warning.level||'UNKNOWN'} • ${fmt(warning.score,0)}/100`:'Evidence warning unavailable')
+  ].join('');
+
+  const reasons=(fi.why_model_is_flagging_it||[]).map(x=>predictionExplainRow(x.factor||'Model factor',x.observation||'',x.meaning||''));
+  const contextual=(ev.forest_doctor?.probable_drivers||[]).slice(0,3).map(x=>predictionExplainRow(
+    `Probable context: ${x.driver||'Unknown'}`,
+    x.relative_support_pct!=null?`${fmt(x.relative_support_pct,0)}% relative support in the evidence model.`:'Evidence present.',
+    'Context for verification only — not proof of causation.'
+  ));
+  const climate=ev.climate||{};
+  if(climate.rainfall_deficit_pct!=null||climate.temperature_anomaly_c!=null){
+    contextual.push(predictionExplainRow(
+      'Climate context',
+      `Temperature anomaly ${climate.temperature_anomaly_c!=null?fmt(climate.temperature_anomaly_c,2)+'°C':'—'} • rainfall deficit ${climate.rainfall_deficit_pct!=null?fmt(climate.rainfall_deficit_pct,1)+'%':'—'}.`,
+      'Used as environmental context; it does not prove the cause of vegetation change.'
+    ));
+  }
+  why.innerHTML=[...reasons,...contextual].join('')||'<div class="empty-state">The forecast completed, but no explanatory factors were returned.</div>';
+
+  const evidenceActions=(ev.action_plan?.actions||[]).slice(0,4);
+  const forecastActions=fi.recommended_actions||[];
+  const chosenActions=evidenceActions.length?evidenceActions:forecastActions;
+  actionsEl.innerHTML=chosenActions.length
+    ?chosenActions.map((x,i)=>predictionActionRow(x,i)).join('')
+    :predictionActionRow({what:'Verify before escalation',how:'Re-run before/after evidence analysis, inspect the newest satellite scene and field-verify any candidate hotspot.',why:'A forecast is a screening signal rather than proof.'},0);
+
+  const impactTargets=[...(fi.expected_impacts||[])];
+  if(ev.carbon?.estimated_co2e_t!=null){
+    impactTargets.push({metric:'Carbon exposure baseline',current:`${fmt(ev.carbon.estimated_co2e_t,1)} tCO₂e estimated`,target:'Prevent further candidate-area expansion',success_check:'Recompute carbon exposure only after a verified area change.'});
+  }
+  const frag=evChange.fragmentation?.change||evChange.fragmentation_change||{};
+  const fragValue=frag.patch_count_pct??frag.patch_density_pct??frag.edge_density_pct??null;
+  if(fragValue!=null){
+    impactTargets.push({metric:'Fragmentation',current:`${Number(fragValue)>=0?'+':''}${fmt(fragValue,1)}%`,target:'No further worsening of patch / edge fragmentation',success_check:'Compare the same AOI on the next suitable observation.'});
+  }
+  impactEl.innerHTML=impactTargets.length
+    ?impactTargets.slice(0,6).map(predictionImpactRow).join('')
+    :'<div class="empty-state">No measurable impact targets were returned.</div>';
+
+  const uncertainty=fi.uncertainty||{};
+  const interval=uncertainty.final_interval||{};
+  const next=fi.verification_next||[];
+  confidenceEl.innerHTML=[
+    predictionExplainRow(
+      'Model confidence',
+      `${uncertainty.confidence_pct??d.analysis?.model_confidence_pct??a.confidence_pct??'—'}% model confidence • optical quality ${d.analysis?.optical_quality_pct!=null?fmt(d.analysis.optical_quality_pct,0)+'%':'—'}.`,
+      uncertainty.note||'Confidence describes fit and data quality, not the probability of deforestation.'
+    ),
+    predictionExplainRow(
+      'Forecast uncertainty',
+      interval.lower!=null&&interval.upper!=null?`Final forecast interval ${fmt(interval.lower,1)}–${fmt(interval.upper,1)} on the 0–100 screening index.`:'Forecast interval unavailable.',
+      p.uncertainty_sigma!=null?`Residual uncertainty σ ${fmt(p.uncertainty_sigma,2)}`:''
+    ),
+    ...next.map((x,i)=>predictionExplainRow(`Verify next ${i+1}`,x,'')),
+    predictionExplainRow('Causation warning',fi.causation_note||d.warning||'The prediction explains the model signal; real-world cause requires evidence-chain and field verification.','')
+  ].join('');
+}
 function renderPredictionResult(d,useLocation){
   const p=d.projection||d,a=p.analysis||{},observed=d.historical_risk_proxy||[],dates=d.dates||[],forecast=p.projected_values||[],future=p.forecast_dates||forecast.map((_,i)=>`Next ${i+1}`);
   const current=useLocation?(d.analysis?.current_risk_index??observed.at(-1)):a.latest_value;
@@ -691,6 +789,7 @@ function renderPredictionResult(d,useLocation){
     );
   }
   $('predictionSummary').innerHTML=predictionMetrics.join('');
+  renderPredictionIntelligence(d,useLocation);
   const pipeline=[...(d.pipeline||[]),...(p.pipeline||[])];
   $('predictionUpdates').innerHTML=pipeline.map((x,i)=>`<div class="update-row"><b>${i+1}</b><span>${esc(x)}</span></div>`).join('');
   $('predictionResult').textContent=JSON.stringify(d,null,2);
@@ -707,7 +806,7 @@ function renderPredictionResult(d,useLocation){
 async function runPrediction(useLocation=false){
   const btn=useLocation?$('runLocationPrediction'):$('runPrediction');
   try{
-    btn.disabled=true;setText('predictionStatus',useLocation?'Reading Sentinel-2 observations and computing forest trend…':'Validating series and fitting robust forecast models…');$('predictionSummary').innerHTML='';$('predictionUpdates').innerHTML='<div class="update-row"><b>•</b><span>Analysis in progress…</span></div>';
+    btn.disabled=true;setText('predictionStatus',useLocation?'Reading Sentinel-2 observations and computing forest trend…':'Validating series and fitting robust forecast models…');$('predictionSummary').innerHTML='';resetPredictionNarrative('Prediction analysis in progress…');$('predictionUpdates').innerHTML='<div class="update-row"><b>•</b><span>Analysis in progress…</span></div>';
     let d;
     if(!useLocation){
       const values=$('predictionValues').value.split(/[\s,]+/).filter(Boolean).map(Number);
@@ -717,10 +816,11 @@ async function runPrediction(useLocation=false){
       if(!ensureLocation())return;
       const start=$('timeStart')?.value||isoDate(threeYearsAgo),end=$('timeEnd')?.value||isoDate(now);
       if(start>=end)throw new Error('Prediction start date must be before end date.');
+      if(!state.evidence)await loadEvidence(false);
       d=await api(`/api/intelligence/predict-location?lat=${state.lat}&lon=${state.lon}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&max_observations=12`);
     }
     renderPredictionResult(d,useLocation);toast(useLocation?'Selected forest prediction updated':'Series projection updated');
-  }catch(e){setText('predictionStatus','Prediction failed: '+e.message);$('predictionResult').textContent=e.message;$('predictionUpdates').innerHTML=''}finally{btn.disabled=false}
+  }catch(e){setText('predictionStatus','Prediction failed: '+e.message);$('predictionResult').textContent=e.message;$('predictionUpdates').innerHTML='<div class="update-row"><b>!</b><span>Prediction could not be completed. Check the date range and source availability.</span></div>';resetPredictionNarrative('Prediction unavailable: '+String(e.message).slice(0,140))}finally{btn.disabled=false}
 }
 async function runWhatIf(){try{if(!ensureLocation())return;const before=$('beforeDate').value,after=$('afterDate').value;if(!before||!after)throw new Error('Select real before/after dates first');const qs=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,temperature_delta_c:String(Number($('whatTemp').value||0)),rainfall_delta_pct:String(Number($('whatRain').value||0)),fire_delta:String(Number($('whatFire').value||0)),ndvi_delta:'0'});const d=await api('/api/intelligence/what-if-location?'+qs.toString());$('whatIfResult').textContent=JSON.stringify(d,null,2)}catch(e){$('whatIfResult').textContent=e.message}}
 

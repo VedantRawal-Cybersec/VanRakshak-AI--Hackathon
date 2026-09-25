@@ -103,3 +103,18 @@ test('quick map filters are exclusive and update thematic legend', async ({ page
   await expect(page.locator('#mapLegendTicks')).toContainText('100%');
   await expect(page.locator('.map-pill.active')).toHaveCount(1);
 });
+
+
+test('analysis tab exposes area soil situation workflow and impact panels', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('[data-tab="analysis"]').click();
+  await expect(page.locator('#tab-analysis')).toBeVisible();
+  await expect(page.locator('#analysisAreaGrid')).toBeVisible();
+  await expect(page.locator('#currentSituationPanel')).toBeVisible();
+  await expect(page.locator('#vanrakshakWorkflow')).toBeVisible();
+  await expect(page.locator('#analysisImpactSummary')).toBeVisible();
+  await expect(page.getByText('Area & Ecosystem Snapshot')).toBeVisible();
+  await expect(page.getByText('What Is Happening Now')).toBeVisible();
+  await expect(page.getByText('How VanRakshak Responds')).toBeVisible();
+  await expect(page.getByText('Expected Impact After Intervention')).toBeVisible();
+});

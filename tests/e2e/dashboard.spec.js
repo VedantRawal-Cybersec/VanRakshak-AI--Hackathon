@@ -118,3 +118,16 @@ test('analysis tab exposes area soil situation workflow and impact panels', asyn
   await expect(page.getByText('How VanRakshak Responds')).toBeVisible();
   await expect(page.getByText('Expected Impact After Intervention')).toBeVisible();
 });
+
+
+test('profile and alert center expose ecological impact and queue contracts', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#vegetationStatus')).toHaveCount(1);
+  await page.locator('[data-tab="analysis"]').click();
+  await expect(page.locator('#profilePanel')).toBeVisible();
+  await expect(page.locator('#profilePanel')).toContainText(/Location|Sentinel/i);
+
+  await expect(page.locator('#alertQueue')).toHaveCount(1);
+  await expect(page.locator('#alertSelectedPlan')).toHaveCount(1);
+  await expect(page.locator('#alertCount')).toHaveCount(1);
+});

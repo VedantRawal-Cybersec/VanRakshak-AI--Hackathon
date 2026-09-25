@@ -169,7 +169,9 @@ class GCPLandsatAdapter(BaseAdapter):
         # Fast path: primary mission, centre/cross WRS neighbours and the three
         # closest calendar years. This is enough for the verified Kodagu 1988
         # overlap and avoids a burst of dozens of public-bucket list requests.
-        fast_paths=paths[:5]
+        # Include diagonal WRS overlaps as well: a point can fall outside the
+        # nearest cross-neighbour scene but inside its diagonal overlap.
+        fast_paths=paths
         fast_years=years[:3]
         batches=await asyncio.gather(*(
             fetch(missions[0],path,row,year,"L1TP")

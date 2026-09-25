@@ -155,6 +155,19 @@ test('historical Landsat before-after comparisons render real tiles', async ({ r
     const usgsBoxText=await usgsBox.text();
     console.log('USGS_LANDSAT_BBOX',row.before,usgsBox.status(),usgsBoxText.slice(0,7000));
 
+    if(row.before.startsWith('1987')){
+      for(const pr of ['145051','145052','144051','144052']){
+        for(const year of ['1987','1986','1988']){
+          const path=pr.slice(0,3),wr=pr.slice(3);
+          const prefix=`LT05/01/${path}/${wr}/LT05_L1TP_${pr}_${year}`;
+          const listUrl='https://storage.googleapis.com/storage/v1/b/gcp-public-data-landsat/o?maxResults=20&prefix='+encodeURIComponent(prefix);
+          const gcs=await request.get(listUrl,{timeout:120000});
+          const gcsText=await gcs.text();
+          console.log('GCP_LANDSAT_LIST',pr,year,gcs.status(),gcsText.slice(0,3500));
+        }
+      }
+    }
+
     const q=new URLSearchParams({
       lat:String(lat),lon:String(lon),
       before_date:row.before,after_date:row.after,

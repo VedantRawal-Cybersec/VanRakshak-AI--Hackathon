@@ -21,7 +21,8 @@ def test_earth_search_tile_spec_ndvi():
     assert spec["mode"]=="ndvi"
     assert "assets=red" in spec["tile_url"]
     assert "assets=nir" in spec["tile_url"]
-    assert "expression=%28b2-b1%29%2F%28b2%2Bb1%29" in spec["tile_url"]
+    from urllib.parse import parse_qs, urlparse
+    assert parse_qs(urlparse(spec["tile_url"]).query)["expression"]==["(b2-b1)/(b2+b1)"]
     assert spec["resolution_m"]==10
 
 

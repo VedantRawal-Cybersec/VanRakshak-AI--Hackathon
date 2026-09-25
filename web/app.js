@@ -673,6 +673,47 @@ async function loadSourceHealth(showToast=true){try{const [h,sh]=await Promise.a
 function sourceIcon(name){name=name.toLowerCase();if(name.includes('sentinel')||name.includes('copernicus')||name.includes('earth search')||name.includes('gibs'))return '🛰';if(name.includes('firms')||name.includes('eonet'))return '🔥';if(name.includes('meteo')||name.includes('met norway')||name.includes('power'))return '☁';if(name.includes('protected'))return '🛡';if(name.includes('photon')||name.includes('nominatim'))return '⌖';if(name.includes('soil'))return '🌱';if(name.includes('news'))return '📰';if(name.includes('earth engine'))return '🌍';return '●'}
 
 function drawSearchBoundary(hit){const g=hit?.geojson;if(!g)return;for(const id of ['search-boundary-fill','search-boundary-line'])if(map.getLayer(id))map.removeLayer(id);if(map.getSource('search-boundary'))map.removeSource('search-boundary');map.addSource('search-boundary',{type:'geojson',data:{type:'Feature',properties:{},geometry:g}});map.addLayer({id:'search-boundary-fill',type:'fill',source:'search-boundary',paint:{'fill-color':'#20d67b','fill-opacity':.06}},map.getLayer('labels')?'labels':undefined);map.addLayer({id:'search-boundary-line',type:'line',source:'search-boundary',paint:{'line-color':'#e8fff4','line-width':1.6,'line-opacity':.9}})}
+async function doSearch(){
+  const q=$('searchBox').value.trim();
+  if(!q)return;
+  try{
+    const g=await api('/api/geocode?q='+encodeURIComponent(q));
+    if(g.ok&&g.data?.length){
+      const hit=g.data[0];
+      state.place=hit.display_name?.split(',').slice(0,2).join(',')||q;
+      drawSearchBoundary(hit);
+      map.flyTo({center:[Number(hit.lon),Number(hit.lat)],zoom:9.5,essential:true});
+      await investigate(Number(hit.lat),Number(hit.lon),state.place);
+      toast('Location resolved from real geocoding and investigation started');
+      return;
+    }
+  }catch{}
+  try{
+    if(!ensureLocation())return;
+    const parsed=await api(`/api/query/live?q=${encodeURIComponent(q)}&lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent($('beforeDate').value)}&after_date=${encodeURIComponent($('afterDate').value)}`);
+    toast('Earth query executed against current selected-area evidence');
+    state.liveIntelligence=parsed.live_result||null;
+    showTab('analysis');
+    await loadEvidence(false);
+  }catch(e){toast('Search: '+String(e.message).slice(0,160))}
+}
+
+async function generateReport(){
+  if(!ensureLocation())return;
+  try{
+    toast('Generating source-backed PDF report…',5000);
+    const url=`/api/report/investigation?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent($('beforeDate').value)}&after_date=${encodeURIComponent($('afterDate').value)}`;
+    const r=await fetch(url);
+    if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);
+    const blob=await r.blob(),a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='vanrakshak-investigation-report.pdf';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1200);
+    toast('Source-backed investigation report generated');
+  }catch(e){toast('Report: '+String(e.message).slice(0,170))}
+}
+
 function predictionMetric(label,value,sub=''){return `<article class="metric-card"><small>${esc(label)}</small><strong>${esc(value)}</strong><em>${esc(sub)}</em></article>`}
 function predictionExplainRow(title,text,meta=''){
   return `<div class="prediction-explain-row"><b>${esc(title)}</b><p>${esc(text||'Unavailable')}</p>${meta?`<small>${esc(meta)}</small>`:''}</div>`;

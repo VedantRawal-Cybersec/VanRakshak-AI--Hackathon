@@ -5,7 +5,7 @@ const state={
   lat:12.3375,lon:75.8069,place:'Kodagu Forest Region',regionSub:'Karnataka, India',
   investigation:null,profile:null,evidence:null,layers:[],active:new Map(),sourceHealth:null,
   inlineBefore:null,inlineAfter:null,panelBefore:null,panelAfter:null,modalBefore:null,modalAfter:null,
-  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null,predictionChart:null,demoScenarios:[]
+  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null,predictionChart:null,demoScenarios:[],alert:null,alertPatrol:null
 };
 
 const baseStyle={
@@ -173,7 +173,7 @@ async function quickLayer(kind){$$('.map-pill').forEach(x=>x.classList.toggle('a
 async function enableFireLayer(id='fire-hotspots'){const s=await api(`/api/fire?lat=${state.lat}&lon=${state.lon}&days=1`);if(!s.ok)throw new Error(s.error||'Fire intelligence unavailable');const feats=(s.data||[]).map(r=>({type:'Feature',geometry:{type:'Point',coordinates:[Number(r.longitude),Number(r.latitude)]},properties:r})).filter(x=>Number.isFinite(x.geometry.coordinates[0])&&Number.isFinite(x.geometry.coordinates[1]));addGeoPoints(id,feats,'#ff423d');toast(`${feats.length} fire-context points • ${s.provenance?.source||'NASA source'}`)}
 
 async function investigate(lat,lon,place='Selected Forest Region'){
-  const revision=state.locationRevision=(state.locationRevision||0)+1;state.lat=Number(lat);state.lon=Number(lon);state.place=place||'Selected Forest Region';state.evidence=null;clearDynamicLayer('candidate-loss');for(const def of allLayers().filter(d=>state.active.has(d.id)&&!['gfw','gibs'].includes(d.render))){clearDynamicLayer(def.id);toggleLayer(def,true,null)}
+  const revision=state.locationRevision=(state.locationRevision||0)+1;state.lat=Number(lat);state.lon=Number(lon);state.place=place||'Selected Forest Region';state.evidence=null;state.alert=null;state.alertPatrol=null;clearDynamicLayer('candidate-loss');for(const def of allLayers().filter(d=>state.active.has(d.id)&&!['gfw','gibs'].includes(d.render))){clearDynamicLayer(def.id);toggleLayer(def,true,null)}
   setText('regionTitle',state.place);setText('coords',`${state.lat.toFixed(4)}, ${state.lon.toFixed(4)} • India`);setText('incidentId',incidentId());setText('mapStatus','Gathering source-backed forest intelligence…');
   ['areaAffected','aiConfidence','ndviChange','riskScore'].forEach(id=>setText(id,'…'));
   try{
@@ -204,7 +204,7 @@ function renderNews(n){if(!n||!n.ok){$('newsPanel').innerHTML=`<div class="empty
 
 async function loadEvidence(showToast=true){if(!ensureLocation())return null;const revision=state.locationRevision;const before=$('beforeDate').value,after=$('afterDate').value;try{if(showToast)toast('Running satellite change + evidence fusion…',5000);const q=`/api/analysis/evidence-chain?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent(before)}&after_date=${encodeURIComponent(after)}&radius_km=2`;const d=await api(q);if(revision!==state.locationRevision)return null;state.evidence=d;renderEvidence(d);if(showToast)toast('Evidence analysis completed');return d}catch(e){if(showToast)toast('Analysis: '+String(e.message).slice(0,170));renderEvidence({warning:{level:'UNKNOWN',score:null,coverage:0,factors:[]},evidence_chain:{items:[]}});return null}}
 
-function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');
+function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',w.score!=null?String(Math.round(Number(w.score))):'—');
   const sev=$('severityBadge');sev.textContent=w.level||'UNKNOWN';sev.className=`severity ${(w.level||'unknown').toLowerCase()}`;
   clearDynamicLayer('candidate-loss');if(c.geojson){addGeoPolygon('candidate-loss',c.geojson,'#ff473d')}
   const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);
@@ -388,8 +388,119 @@ async function runPatrol(useDetected=false){
       const points=$('patrolPoints').value.trim().split('\n').filter(Boolean).map((row,i)=>{const v=row.split(',').map(x=>Number(x.trim()));if(v.length!==3||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>90||Math.abs(v[1])>180||v[2]<0||v[2]>100)throw new Error(`Invalid stop on line ${i+1}: use lat,lon,priority (0–100).`);return {id:String(i+1),lat:v[0],lon:v[1],priority:v[2]}});if(!points.length)throw new Error('Enter at least one patrol stop.');
       d=await api('/api/patrol/road-route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_lat:state.lat,start_lon:state.lon,points})});
     }
-    renderPatrolResult(d,useDetected);toast(d.status==='NO_PATROL_TARGETS'?'Analysis complete: no patrol hotspots detected':d.road_route?'Road-aware patrol route loaded':'Road route unavailable; fallback ordering displayed',4500);
+    if(useDetected)state.alertPatrol=d;renderPatrolResult(d,useDetected);toast(d.status==='NO_PATROL_TARGETS'?'Analysis complete: no patrol hotspots detected':d.road_route?'Road-aware patrol route loaded':'Road route unavailable; fallback ordering displayed',4500);
   }catch(e){setText('patrolStatus','Patrol route failed: '+e.message);$('patrolResult').textContent=e.message;$('patrolStops').innerHTML='';$('patrolInstructions').innerHTML=''}finally{btn.disabled=false}
+}
+
+function alertRouteAppendix(){
+  const d=state.alertPatrol;if(!d)return '';
+  if(d.status==='NO_PATROL_TARGETS')return '\n\nPATROL ROUTE: No candidate-change patrol hotspots were detected; routing was intentionally skipped.';
+  const o=d.ordering||{},route=o.route||[],road=d.road_route||{};
+  const lines=['','PATROL ROUTE'];
+  lines.push(`Mode: ${o.ordering_mode||d.status||'—'}`);
+  if(road.distance_km!=null)lines.push(`Road distance: ${fmt(road.distance_km,2)} km`);
+  if(road.duration_min!=null)lines.push(`Estimated travel time: ${fmt(road.duration_min,1)} min`);
+  if(route.length){
+    lines.push('Ordered stops:');
+    route.slice(0,5).forEach((x,i)=>{
+      const area=x.candidate_context?.area_ha;
+      lines.push(`${i+1}. ${x.id} — ${fmt(x.lat,6)}, ${fmt(x.lon,6)} — priority ${fmt(x.priority,0)}/100${area!=null?` — ${fmt(area,2)} ha candidate`:''}`);
+    });
+  }
+  return '\n'+lines.join('\n');
+}
+function refreshAlertMessage(){
+  if(!$('alertMessage'))return;
+  $('alertMessage').value=(state.alert?.message||'')+alertRouteAppendix();
+}
+function renderAlert(d){
+  const c=d.change||{},top=d.top_patrol_target||{},period=d.detected_period||{},metrics=[
+    predictionMetric('Severity',d.severity||'UNKNOWN','field triage'),
+    predictionMetric('Warning score',d.warning_score!=null?fmt(d.warning_score,0)+'/100':'—','evidence-normalized'),
+    predictionMetric('Candidate area',c.candidate_area_ha!=null?fmt(c.candidate_area_ha,2)+' ha':'—',`${c.candidate_polygons??0} polygon(s)`),
+    predictionMetric('Confidence',c.screening_confidence!=null?pct(c.screening_confidence,0):'—','change screening'),
+    predictionMetric('NDVI change',c.mean_ndvi_change!=null?fmt(c.mean_ndvi_change,3):'—','mean before → after'),
+    predictionMetric('Before',period.before||'—','satellite observation'),
+    predictionMetric('After',period.after||'—','satellite observation'),
+    predictionMetric('First target',top.area_ha!=null?fmt(top.area_ha,2)+' ha':'Priority point',top.lat!=null?`${fmt(top.lat,5)}, ${fmt(top.lon,5)}`:'—')
+  ];
+  $('alertMetrics').innerHTML=metrics.join('');
+  $('alertContext').innerHTML=`<p><b>Location:</b> ${esc(d.location?.place||state.place)}</p><p><b>Coordinates:</b> ${fmt(d.location?.lat,6)}, ${fmt(d.location?.lon,6)}</p><p><b>Detected:</b> ${c.candidate_area_ha!=null?fmt(c.candidate_area_ha,2)+' ha candidate change':'No complete area'} across ${c.candidate_polygons??0} polygon(s).</p><p><b>Period:</b> ${esc(period.before||'—')} → ${esc(period.after||'—')}</p><p><b>Priority target:</b> ${top.lat!=null?`${fmt(top.lat,6)}, ${fmt(top.lon,6)}`:'Selected location'} ${top.area_ha!=null?`• ${fmt(top.area_ha,2)} ha`:''}</p>`;
+  const drivers=d.probable_drivers||[];
+  $('alertDrivers').innerHTML=drivers.length?drivers.map(x=>`<div class="alert-driver"><span>${esc(x.driver)}</span><b>${x.support_pct!=null?fmt(x.support_pct,0)+'%':'evidence present'}</b></div>`).join(''):'<div class="drawer-note">No cause is established from the current evidence. Patrol should verify conditions without assuming a cause.</div>';
+  refreshAlertMessage();
+  setText('alertStatus',`${d.severity||'UNKNOWN'} patrol brief ready • incident ${d.incident_id||'—'} • generated ${String(d.generated_at||'').replace('T',' ').slice(0,19)} UTC`);
+}
+async function composeCurrentAlert(){
+  if($('alertModal')?.classList.contains('hidden'))return null;
+  if(!ensureLocation())return null;
+  const before=$('beforeDate').value,after=$('afterDate').value;
+  try{
+    validateCompareDates(before,after);
+    setText('alertStatus','Analyzing selected forest and composing patrol message…');
+    $('alertMetrics').innerHTML='';
+    $('alertContext').innerHTML='<div class="empty-state">Reading source-backed forest evidence…</div>';
+    $('alertDrivers').innerHTML='<div class="empty-state">Evaluating probable drivers…</div>';
+    const q=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after});
+    const d=await api('/api/alerts/compose?'+q.toString());
+    state.alert=d;state.alertPatrol=null;renderAlert(d);toast('Patrol alert generated from current evidence');return d;
+  }catch(e){
+    setText('alertStatus','Alert generation failed: '+e.message);
+    $('alertContext').innerHTML=`<div class="empty-state">${esc(e.message)}</div>`;
+    $('alertDrivers').innerHTML='';$('alertMessage').value='';state.alert=null;return null;
+  }
+}
+async function openAlertCenter(){
+  if(!ensureLocation())return;
+  $('alertModal').classList.remove('hidden');
+  await composeCurrentAlert();
+}
+async function attachAlertPatrolRoute(){
+  if($('alertModal').classList.contains('hidden'))return;
+  if(!state.alert){const d=await composeCurrentAlert();if(!d)return}
+  const before=$('beforeDate').value,after=$('afterDate').value;
+  try{
+    setText('alertRouteStatus','Building route from detected change polygons…');
+    const q=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,max_points:'5'});
+    const d=await api('/api/patrol/live?'+q.toString());state.alertPatrol=d;refreshAlertMessage();
+    if(d.status==='NO_PATROL_TARGETS')setText('alertRouteStatus','No patrol hotspots detected; the alert remains valid as an analysis update.');
+    else setText('alertRouteStatus',d.road_route?`Attached ${(d.ordering?.route||[]).length} stops • ${fmt(d.road_route.distance_km,1)} km • ~${fmt(d.road_route.duration_min,0)} min`:'Attached priority stop order; road geometry unavailable.');
+    toast('Patrol route attached to alert');
+  }catch(e){setText('alertRouteStatus','Route attachment failed: '+e.message)}
+}
+function alertDraft(){
+  return ($('alertMessage')?.value||'').trim();
+}
+async function copyAlertMessage(){
+  if($('alertModal').classList.contains('hidden'))return;
+  const text=alertDraft();if(!text)return toast('Generate the alert first');
+  try{
+    if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(text);
+    else{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()}
+    toast('Patrol alert copied');
+  }catch{toast('Could not copy automatically; select the message manually')}
+}
+async function shareAlertMessage(){
+  if($('alertModal').classList.contains('hidden'))return;
+  const text=alertDraft();if(!text)return toast('Generate the alert first');
+  if(navigator.share){
+    try{await navigator.share({title:state.alert?.subject||'VanRakshak Patrol Alert',text});return}catch(e){if(e.name==='AbortError')return}
+  }
+  await copyAlertMessage();toast('Share sheet unavailable; alert copied instead');
+}
+function whatsappAlertMessage(){
+  if($('alertModal').classList.contains('hidden'))return;
+  const text=alertDraft();if(!text)return toast('Generate the alert first');
+  const phone=($('alertPhone').value||'').replace(/\D/g,'');
+  const url=`https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  window.open(url,'_blank','noopener');
+}
+function emailAlertMessage(){
+  if($('alertModal').classList.contains('hidden'))return;
+  const text=alertDraft();if(!text)return toast('Generate the alert first');
+  const email=($('alertEmail').value||'').trim();
+  const subject=state.alert?.subject||'VanRakshak Patrol Alert';
+  window.location.href=`mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
 }
 
 async function loadTime(){if(!ensureLocation())return;if(state.timeTimer){clearInterval(state.timeTimer);state.timeTimer=null;$('playTime').textContent='▶ Play'}try{validateCompareDates($('timeStart').value,$('timeEnd').value);const d=await api(`/api/time-machine?lat=${state.lat}&lon=${state.lon}&start=${$('timeStart').value}&end=${$('timeEnd').value}&limit=70`);state.timeScenes=d.scenes||[];state.timeIndex=0;$('timeline').innerHTML=state.timeScenes.length?state.timeScenes.map((x,i)=>`<button class="timeline-item" data-scene="${i}"><b>${esc(sceneDateLabel(x,x.requested_date))}</b><small>Cloud ${x.cloud_cover??'—'}%</small></button>`).join(''):'<div class="empty-state">No suitable scenes returned.</div>';$$('[data-scene]').forEach(btn=>btn.onclick=()=>showTimeScene(Number(btn.dataset.scene)));if(state.timeScenes.length)showTimeScene(0)}catch(e){$('timeline').innerHTML=`<div class="empty-state">${esc(e.message)}</div>`}}
@@ -405,7 +516,7 @@ $$('.right-tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 $('inlineCompareSlider').oninput=e=>setInlineCompareSplit(e.target.value);
 $('expandCompare').onclick=openFullCompare;$('openCompareBtn').onclick=openFullCompare;$('closeCompare').onclick=()=>$('compareModal').classList.add('hidden');$('loadCompare').onclick=loadFullCompare;$('compareSlider').oninput=e=>setModalCompareSplit(e.target.value);
 $('loadInlineCompare').onclick=()=>loadInlineCompare(true);$('runChangeAnalysis').onclick=()=>loadEvidence(true);$('runEvidenceAnalysis').onclick=()=>loadEvidence(true);
-$('reportBtn').onclick=generateReport;$('generateReportNews').onclick=generateReport;$('reportsTop').onclick=generateReport;$('viewOnMapBtn').onclick=fitSelected;$('patrolBtn').onclick=openPatrol;
+$('reportBtn').onclick=generateReport;$('generateReportNews').onclick=generateReport;$('reportsTop').onclick=generateReport;$('viewOnMapBtn').onclick=fitSelected;$('patrolBtn').onclick=openPatrol;$('sendAlertBtn').onclick=openAlertCenter;
 $('refreshSources').onclick=()=>loadSourceHealth(true);$('healthBtn').onclick=()=>loadSourceHealth(true);$('liveDataTop').onclick=()=>{showTab('overview');$('liveDataSection').scrollIntoView({behavior:'smooth',block:'center'});loadSourceHealth(true)};$('analyticsTop').onclick=()=>{$('analyticsSection').scrollIntoView({behavior:'smooth',block:'center'});toast('Source-backed regional analytics')};
 $('aboutTop').onclick=()=>$('aboutModal').classList.remove('hidden');$('closeAbout').onclick=()=>$('aboutModal').classList.add('hidden');
 $('demoScenarioSelect').onchange=()=>renderDemoScenarioMeta(state.demoScenarios.find(x=>x.id===$('demoScenarioSelect').value));$('loadDemoScenario').onclick=applyDemoScenario;
@@ -413,11 +524,12 @@ $('aiAssistantBtn').onclick=()=>{$('searchBox').focus();$('searchBox').placehold
 $('openLayerDrawerEnv').onclick=openLayerDrawer;
 $('closeIntelligence').onclick=()=>$('intelligenceModal').classList.add('hidden');$('runPrediction').onclick=()=>runPrediction(false);$('runLocationPrediction').onclick=()=>runPrediction(true);$('runWhatIf').onclick=runWhatIf;
 $('closePatrol').onclick=()=>$('patrolModal').classList.add('hidden');$('runPatrol').onclick=()=>runPatrol(false);$('runDetectedPatrol').onclick=()=>runPatrol(true);
+$('closeAlert').onclick=()=>$('alertModal').classList.add('hidden');$('refreshAlert').onclick=composeCurrentAlert;$('attachAlertPatrol').onclick=attachAlertPatrolRoute;$('copyAlert').onclick=copyAlertMessage;$('shareAlert').onclick=shareAlertMessage;$('whatsappAlert').onclick=whatsappAlertMessage;$('emailAlert').onclick=emailAlertMessage;
 $('openTime').onclick=()=>{$('timeModal').classList.remove('hidden');state.timeMap?.resize()};
 $('closeTime').onclick=()=>{if(state.timeTimer){clearInterval(state.timeTimer);state.timeTimer=null}$('playTime').textContent='▶ Play';$('timeModal').classList.add('hidden')};$('loadTime').onclick=loadTime;$('playTime').onclick=toggleTimePlay;
 $('addBhuvan').onclick=()=>{const layer=$('bhuvanLayer').value.trim();if(!layer)return toast('Enter an exact Bhuvan-published WMS layer name');addRaster('bhuvan-custom',`/api/bhuvan/tile/{z}/{x}/{y}.png?layer=${encodeURIComponent(layer)}`,.78);toast('Bhuvan layer added')};
 
-$$('[data-nav]').forEach(b=>b.onclick=async()=>{const n=b.dataset.nav;$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));if(n==='map')fitSelected();if(n==='forest')await quickLayer('forest');if(n==='alerts'){const l=findLayerBy(x=>/alert|loss/i.test(`${x.label||''} ${x.id||''}`));if(l)await toggleLayer(l,true,null);else{showTab('analysis');await loadEvidence(true)}}if(n==='analysis'){showTab('analysis');await loadEvidence(false)}if(n==='weather'){showTab('environment')}if(n==='fire'){await quickLayer('fire')}if(n==='soil'){showTab('environment');openLayerDrawer()}if(n==='predictions')$('intelligenceModal').classList.remove('hidden');if(n==='patrol')openPatrol();if(n==='reports')generateReport()});
+$$('[data-nav]').forEach(b=>b.onclick=async()=>{const n=b.dataset.nav;$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));if(n==='map')fitSelected();if(n==='forest')await quickLayer('forest');if(n==='alerts')await openAlertCenter()if(n==='analysis'){showTab('analysis');await loadEvidence(false)}if(n==='weather'){showTab('environment')}if(n==='fire'){await quickLayer('fire')}if(n==='soil'){showTab('environment');openLayerDrawer()}if(n==='predictions')$('intelligenceModal').classList.remove('hidden');if(n==='patrol')openPatrol();if(n==='reports')generateReport()});
 
 // Keep paired date controls synchronized.
 $('beforeDate').onchange=()=>{$('modalBeforeDate').value=$('beforeDate').value};$('afterDate').onchange=()=>{$('modalAfterDate').value=$('afterDate').value};$('modalBeforeDate').onchange=()=>{$('beforeDate').value=$('modalBeforeDate').value};$('modalAfterDate').onchange=()=>{$('afterDate').value=$('modalAfterDate').value};

@@ -114,6 +114,7 @@ def test_provider_failure_is_503_not_internal_server_error(monkeypatch):
     monkeypatch.setattr(main.earth,'closest_scene',AsyncMock(side_effect=AdapterError('Catalogue timeout')))
     monkeypatch.setattr(main.pc,'search_optical',AsyncMock(side_effect=AdapterError('Archive timeout')))
     monkeypatch.setattr(main.usgs_landsat,'closest_scene',AsyncMock(side_effect=AdapterError('USGS timeout')))
+    monkeypatch.setattr(main.gcp_landsat,'closest_scene',AsyncMock(side_effect=AdapterError('Google archive timeout')))
     r=TestClient(app).get('/api/map/compare',params={'lat':12,'lon':75,'before_date':'2020-01-01','after_date':'2021-01-01'})
     assert r.status_code == 503
     assert r.json()['status'] == 'PROVIDER_UNAVAILABLE'

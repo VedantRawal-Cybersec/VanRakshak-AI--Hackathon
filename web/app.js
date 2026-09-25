@@ -317,7 +317,12 @@ function renderModelQuality(evidence=state.evidence,prediction=state.lastPredict
   }else{
     rows.push(modelQualityCard('Prediction holdout backtest','Not available',bt.reason||'Run Predictions with at least six usable Sentinel observations','off'));
   }
-  rows.push(modelQualityCard('Ground-truth Precision / Recall / F1 / IoU',gt.available?'Available':'Not claimed',gt.note||'No labelled geographic benchmark configured; VanRakshak does not invent accuracy.','off'));
+  rows.push(modelQualityCard(
+    'Real labelled benchmark • Precision / Recall / F1 / IoU',
+    gt.available?`P ${fmt((gt.precision||0)*100,1)}% • R ${fmt((gt.recall||0)*100,1)}% • F1 ${fmt((gt.f1||0)*100,1)}% • IoU ${fmt((gt.iou||0)*100,1)}%`:'Not available',
+    gt.available?`${gt.dataset||'Sentinel-2 benchmark'} • ${gt.validation_class||'spatial holdout'} • n=${gt.test_n||'—'} • ${gt.region||''}. ${gt.note||''}`:(gt.note||'No labelled benchmark configured; VanRakshak does not invent accuracy.'),
+    gt.available?'ok':'off'
+  ));
   panel.innerHTML=rows.join('');
   const evidenceCount=[
     cd.valid_pixels!=null,

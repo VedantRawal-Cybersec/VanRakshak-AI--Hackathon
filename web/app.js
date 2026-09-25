@@ -298,6 +298,36 @@ function renderDataIntegrity(){
   }).join(''):'<div class="empty-state">No provider provenance has loaded yet.</div>';
 }
 
+function modelQualityCard(label,value,meta='',tone=''){
+  return '<div class="model-quality-card '+esc(tone)+'"><small>'+esc(label)+'</small><b>'+esc(value==null?'—':String(value))+'</b>'+(meta?'<em>'+esc(meta)+'</em>':'')+'</div>';
+}
+function renderModelQuality(evidence=state.evidence,prediction=state.lastPrediction){
+  const panel=$('modelQualityPanel');if(!panel)return;
+  const q=evidence?.model_quality||{},cd=q.change_detection||{},cross=q.cross_sensor_validation||{},gt=q.ground_truth_classification_metrics||{};
+  const bt=prediction?.analysis?.temporal_backtest||prediction?.forecast_intelligence?.uncertainty?.backtest||{};
+  const rows=[];
+  rows.push(modelQualityCard('Optical valid pixels',cd.valid_pixels!=null?Number(cd.valid_pixels).toLocaleString():'Unavailable','Real Sentinel-2 pixels after cloud/quality masking'));
+  rows.push(modelQualityCard('Cloud-masked fraction',cd.cloud_masked_fraction!=null?pct(cd.cloud_masked_fraction,1):'Unavailable','Lower is generally better for optical interpretation'));
+  rows.push(modelQualityCard('Change screening confidence',cd.screening_confidence!=null?pct(cd.screening_confidence,1):'Unavailable','Transparent evidence-strength score — not classification accuracy'));
+  rows.push(modelQualityCard('IsolationForest overlap',cd.isolation_forest_candidate_overlap_fraction!=null?pct(cd.isolation_forest_candidate_overlap_fraction,1):'Unavailable','Independent unsupervised anomaly corroboration on NDVI/NDMI/NBR/NDWI changes'));
+  rows.push(modelQualityCard('Sentinel-1 corroboration',cross.status||'Unavailable',cross.sentinel1_candidate_fraction!=null?'SAR candidate fraction '+pct(cross.sentinel1_candidate_fraction,2)+' • confidence '+pct(cross.sentinel1_screening_confidence,1):cross.note||'Matched SAR pair not available'));
+  if(bt.available){
+    rows.push(modelQualityCard('Prediction holdout MAE',fmt(bt.mae,2),'Real temporal holdout • '+bt.holdout_observations+' held-out Sentinel-derived observation(s)','ok'));
+    rows.push(modelQualityCard('Prediction holdout RMSE',fmt(bt.rmse,2),'Interval coverage '+fmt(bt.interval_coverage_pct,0)+'% • screening-index units','ok'));
+  }else{
+    rows.push(modelQualityCard('Prediction holdout backtest','Not available',bt.reason||'Run Predictions with at least six usable Sentinel observations','off'));
+  }
+  rows.push(modelQualityCard('Ground-truth Precision / Recall / F1 / IoU',gt.available?'Available':'Not claimed',gt.note||'No labelled geographic benchmark configured; VanRakshak does not invent accuracy.','off'));
+  panel.innerHTML=rows.join('');
+  const evidenceCount=[
+    cd.valid_pixels!=null,
+    cd.isolation_forest_candidate_overlap_fraction!=null,
+    cross.status&&cross.status!=='SAR_NOT_AVAILABLE',
+    bt.available
+  ].filter(Boolean).length;
+  setText('modelQualitySummary',evidenceCount+' measured validation signal'+(evidenceCount===1?'':'s')+' • no fabricated accuracy');
+}
+
 function renderInvestigation(d){const s=d.sources||{};const reverse=s.reverse_geocode?.data||{};const addr=reverse.address||{};if(reverse.display_name){const district=addr.state_district||addr.county||addr.city||addr.town;const st=addr.state;state.regionSub=[district,st,'India'].filter(Boolean).slice(0,3).join(', ');setText('coords',state.regionSub);setText('sumRegionSub',state.regionSub)}
   const shortName=(addr.state_district||addr.county||state.place||'Selected Region').replace(/ district/i,'');setText('sumRegion',shortName);setText('regionTitle',state.place||shortName);
   const fires=s.fire?.ok?(s.fire.data||[]):[];const fireSource=s.fire?.provenance?.source||'NASA fire intelligence';const fireFresh=s.fire?.provenance?.freshness||'';const pixelNrt=/FIRMS/i.test(fireSource)&&fireFresh==='LIVE_NRT';setText('sumFire',pixelNrt?String(fires.length):'—');setText('sumFireDelta',pixelNrt?'FIRMS NRT detections':s.fire?.ok?'Context only • '+fireSource.replace('NASA ','').slice(0,22):(s.fire?.error||'Fire sources unavailable').slice(0,31));setText('navAlertBadge',pixelNrt?String(fires.length):'—');
@@ -608,7 +638,7 @@ async function loadEvidence(showToast=true){if(!ensureLocation())return null;con
 function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{},carbonRef=d.carbon_reference||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',String(selectedAreaAlertCount(d)));
   const sev=$('severityBadge');sev.textContent=w.level||'UNKNOWN';sev.className=`severity ${(w.level||'unknown').toLowerCase()}`;
   clearDynamicLayer('candidate-loss');if(c.geojson){addGeoPolygon('candidate-loss',c.geojson,'#ff473d')}
-  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);renderEnvironment(state.investigation,state.profile);renderAnalysisIntelligence();renderDataIntegrity();
+  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);renderEnvironment(state.investigation,state.profile);renderAnalysisIntelligence();renderDataIntegrity();renderModelQuality(d,state.lastPrediction);
   const items=d.evidence_chain?.items||[];$('keyEvidence').innerHTML=items.length?items.slice(0,4).map(x=>`<div class="evidence-item"><span class="evidence-check">✓</span><span>${esc(x.statement||x.source||x.kind)}</span></div>`).join(''):'<div class="empty-state">No complete evidence items returned.</div>';
   $('evidenceChain').innerHTML=items.length?items.map(x=>`<p><b>${esc(x.kind)}</b> · ${esc(x.source)} — ${esc(x.statement)}</p>`).join(''):'<p>Evidence sources are unavailable or incomplete for the selected dates.</p>';
   setText('carbonImpact',carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,0):'Local unavailable');setText('carbonImpactSub',carbon.estimated_co2e_t!=null?`tCO₂e • ${carbon.estimate_class||'location-specific mapped reference'}`:carbonRef.estimated_co2e_t!=null?`IPCC context ${fmt(carbonRef.estimated_co2e_t,0)} tCO₂e • NOT local measurement`:'No location-specific biomass source');
@@ -824,6 +854,7 @@ function renderPredictionIntelligence(d,useLocation){
   ].join('');
 }
 function renderPredictionResult(d,useLocation){
+  if(useLocation){state.lastPrediction=d;renderModelQuality(state.evidence,d)}
   const p=d.projection||d,a=p.analysis||{},observed=d.historical_risk_proxy||[],dates=d.dates||[],forecast=p.projected_values||[],future=p.forecast_dates||forecast.map((_,i)=>`Next ${i+1}`);
   const current=useLocation?(d.analysis?.current_risk_index??observed.at(-1)):a.latest_value;
   const predictionMetrics=[

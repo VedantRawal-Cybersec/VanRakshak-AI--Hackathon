@@ -330,7 +330,7 @@ async function runPrediction(useLocation=false){
     if(!useLocation){
       const values=$('predictionValues').value.split(/[\s,]+/).filter(Boolean).map(Number);
       if(values.length<3||values.some(v=>!Number.isFinite(v)))throw new Error('Enter at least three finite numeric values.');
-      d=await api('/api/intelligence/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({values,steps:4,floor:0,ceiling:100})});d={...d,source:'User-entered series'};
+      d=await api('/api/intelligence/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({values,steps:4,floor:0,ceiling:100})});d={...d,source:'User-entered series',historical_risk_proxy:values,dates:values.map((_,i)=>`Obs ${i+1}`)};
     }else{
       if(!ensureLocation())return;
       const start=$('timeStart')?.value||isoDate(threeYearsAgo),end=$('timeEnd')?.value||isoDate(now);

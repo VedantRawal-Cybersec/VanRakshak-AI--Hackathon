@@ -84,12 +84,12 @@ test('all explicit dashboard buttons can be dispatched without page errors', asy
 
   await page.locator('[data-nav="alerts"]').evaluate(node=>node.click());
   await expect(page.locator('#alertModal')).toBeVisible();
-  await expect(page.locator('#alertMessage')).toContainText('WHERE: Kodagu Forest Region');
-  await expect(page.locator('#alertMessage')).toContainText('WHAT WAS DETECTED');
-  await expect(page.locator('#alertMessage')).toContainText('HOW IT MAY BE HAPPENING');
-  await expect(page.locator('#alertMessage')).toContainText('PATROL FIRST PRIORITY');
+  await expect(page.locator('#alertMessage')).toHaveValue(/WHERE: Kodagu Forest Region/);
+  await expect(page.locator('#alertMessage')).toHaveValue(/WHAT WAS DETECTED/);
+  await expect(page.locator('#alertMessage')).toHaveValue(/HOW IT MAY BE HAPPENING/);
+  await expect(page.locator('#alertMessage')).toHaveValue(/PATROL FIRST PRIORITY/);
   await page.locator('#attachAlertPatrol').evaluate(node=>node.click());
-  await expect(page.locator('#alertMessage')).toContainText('PATROL ROUTE');
+  await expect(page.locator('#alertMessage')).toHaveValue(/PATROL ROUTE/);
   await page.locator('#closeAlert').evaluate(node=>node.click());
 
   await page.locator('[data-nav="predictions"]').evaluate(node=>node.click());

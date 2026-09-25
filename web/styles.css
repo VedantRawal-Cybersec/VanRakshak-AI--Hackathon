@@ -207,3 +207,30 @@ button,input,select,textarea{touch-action:manipulation}
 .selected-alert-grid p{margin:4px 0 0;color:#c1d0cb;font-size:9px;line-height:1.45}
 @media(max-width:1100px){.impact-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:800px){.enhanced-profile,.selected-alert-grid{grid-template-columns:1fr}.profile-cell.wide{grid-column:1}.impact-strip{grid-template-columns:1fr 1fr}}
+
+
+/* Prediction operational intelligence */
+.prediction-explain-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.prediction-explain-card,.prediction-confidence-card{background:#071923;border:1px solid #193641;border-radius:10px;padding:10px;min-width:0}
+.prediction-confidence-card{margin-top:8px}
+.prediction-explain-head{display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.prediction-explain-head>span{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#0b6e49;color:#fff;font-size:8px;font-weight:800;flex:none}
+.prediction-explain-head h4{margin:0;font-size:11px;color:#edf8f4}
+.prediction-explain-body,.prediction-confidence-body{display:grid;gap:7px}
+.prediction-explain-row{background:#0a202a;border:1px solid #1a3a46;border-radius:8px;padding:8px}
+.prediction-explain-row b{display:block;font-size:9.5px;color:#e7f4ef}
+.prediction-explain-row p{margin:4px 0 0;font-size:9px;line-height:1.45;color:#abc0b9}
+.prediction-explain-row small{display:block;margin-top:4px;color:#78958c;font-size:8px;line-height:1.4}
+.prediction-action-row{display:grid;grid-template-columns:24px 1fr;gap:8px;background:#0a202a;border:1px solid #1a3a46;border-radius:8px;padding:8px}
+.prediction-action-row>span{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:#123e32;color:#6ce6ab;font-weight:800;font-size:9px}
+.prediction-action-row b{display:block;font-size:9.5px}
+.prediction-action-row p{margin:3px 0;color:#abc0b9;font-size:9px;line-height:1.4}
+.prediction-action-row small{display:block;color:#78958c;font-size:8px;line-height:1.35;margin-top:2px}
+.prediction-impact-row{background:#09211d;border:1px solid #1f5141;border-radius:8px;padding:8px}
+.prediction-impact-row>div{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.prediction-impact-row b{font-size:9.5px}
+.prediction-impact-row small{color:#72cda9;font-size:8px;text-align:right}
+.prediction-impact-row p{margin:4px 0 0;color:#7de0ac;font-size:9px;line-height:1.4}
+.prediction-impact-row em{display:block;margin-top:4px;color:#78958c;font-style:normal;font-size:8px;line-height:1.35}
+.prediction-card .forecast-chart{margin-top:10px}
+@media(max-width:900px){.prediction-explain-grid{grid-template-columns:1fr}}

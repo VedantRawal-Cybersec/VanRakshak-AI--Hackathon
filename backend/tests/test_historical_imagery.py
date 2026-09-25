@@ -42,6 +42,63 @@ def test_archive_year_prefers_official_usgs_and_public_gcp_mirror(year):
     gcp.resolve_item.assert_awaited_once()
 
 
+
+def test_gcp_wrs2_candidates_cover_verified_kodagu_archive_pathrow():
+    # Production diagnostics verified real LT05 scenes in 144/051 and 144/052.
+    # The orbital estimate must include that overlap neighbourhood.
+    candidates=GCPLandsatAdapter.wrs2_candidates(12.3375,75.8069)
+    assert (144,51) in candidates
+    assert (144,52) in candidates
+    assert len(candidates)<=9
+
+
+def test_gcp_direct_archive_discovery_returns_real_capture_metadata(monkeypatch):
+    gcp=GCPLandsatAdapter()
+    product='LT05_L1TP_144051_19880119_20170210_01_T1'
+    gcp._discover_products=AsyncMock(return_value=[(232.0,product)])
+    gcp.metadata=AsyncMock(return_value='''CLOUD_COVER = 12.0
+CORNER_UL_LAT_PRODUCT = 13.5
+CORNER_UR_LAT_PRODUCT = 13.5
+CORNER_LL_LAT_PRODUCT = 11.0
+CORNER_LR_LAT_PRODUCT = 11.0
+CORNER_UL_LON_PRODUCT = 74.5
+CORNER_UR_LON_PRODUCT = 77.0
+CORNER_LL_LON_PRODUCT = 74.5
+CORNER_LR_LON_PRODUCT = 77.0
+''')
+    item=asyncio.run(gcp.closest_scene(12.3375,75.8069,datetime(1987,6,1,tzinfo=timezone.utc),90,100,550))
+    assert item['id']==product
+    assert item['properties']['datetime'].startswith('1988-01-19')
+    assert item['_vanrakshak_archive']['date_offset_days']==232.0
+    assert item['_vanrakshak_catalog_source'].startswith('Google Cloud')
+
+
+def test_historical_loader_uses_gcp_direct_discovery_when_usgs_has_gap():
+    earth=EarthSearchAdapter(); pc=PlanetaryComputerAdapter()
+    pc.search_optical=AsyncMock(side_effect=AssertionError('Planetary fallback should not run'))
+    usgs=AsyncMock(); usgs.closest_scene=AsyncMock(return_value=None)
+    gcp=AsyncMock()
+    product='LT05_L1TP_144051_19880119_20170210_01_T1'
+    gcp.closest_scene=AsyncMock(return_value={
+        'id':product,
+        'properties':{'datetime':'1988-01-19T00:00:00Z','eo:cloud_cover':12},
+        '_gcp_product_id':product,
+        '_vanrakshak_catalog_source':'Google Cloud public Landsat Collection 1',
+        '_vanrakshak_archive':{'requested_date':'1987-06-01','window_used_days':232,'date_offset_days':232.0},
+    })
+    gcp.resolve_item=AsyncMock(return_value=product)
+    gcp.tile_spec=lambda item,product,mode,requested_date=None: {
+        'item_id':item['id'],'observed_at':item['properties']['datetime'],
+        'requested_date':requested_date,'date_offset_days':232.0,
+        'tile_url':'/api/historical/test/{z}/{x}/{y}.png',
+        'source':'Google Cloud public Landsat Collection 1 archive',
+    }
+    result=asyncio.run(history.dated_scene(earth,pc,12.3375,75.8069,datetime(1987,6,1,tzinfo=timezone.utc),'true_color',90,100,usgs,gcp))
+    assert result['observed_at'].startswith('1988-01-19')
+    assert result['date_offset_days']==232.0
+    gcp.closest_scene.assert_awaited_once()
+
+
 def test_historical_falls_back_to_planetary_when_public_mirror_missing():
     earth=EarthSearchAdapter(); pc=PlanetaryComputerAdapter()
     usgs=AsyncMock(); usgs.closest_scene=AsyncMock(return_value={'id':'LT05_L2SP_145051_20010601_20200101_02_T1_SR','properties':{'datetime':'2001-06-01T00:00:00+00:00'}})

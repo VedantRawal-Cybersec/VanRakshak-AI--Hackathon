@@ -278,3 +278,19 @@ button,input,select,textarea{touch-action:manipulation}
   .field-media-upload{flex-direction:column;align-items:flex-start}
   .field-media-upload input{max-width:100%}
 }
+
+
+/* Real data integrity surfaces */
+.data-mode-badge{display:inline-flex;align-items:center;width:max-content;margin-top:4px;padding:3px 7px;border-radius:999px;border:1px solid #1f7c58;background:#0a2a20;color:#70e5ac;font-size:7.5px;font-weight:800;letter-spacing:.45px}
+.data-mode-badge.fallback{border-color:#7f6729;background:#292210;color:#f2cd69}
+.data-mode-badge.warning{border-color:#8f3f49;background:#2b1519;color:#ff7982}
+.data-integrity-panel{display:grid;gap:6px}
+.data-source-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:start;background:#081b24;border:1px solid #193943;border-radius:8px;padding:8px}
+.data-source-row.ok{border-left:3px solid #2ac982}
+.data-source-row.fallback{border-left:3px solid #e5b444}
+.data-source-row.off{border-left:3px solid #667881;opacity:.85}
+.data-source-row b{display:block;font-size:9.5px;color:#edf7f3}
+.data-source-row small{display:block;margin-top:2px;color:#7d978f;font-size:8px}
+.data-source-row>span{font-size:7.5px;font-weight:800;border:1px solid #35505b;border-radius:999px;padding:3px 6px;color:#a9c5bc}
+.data-source-row.fallback>span{color:#f1cf72;border-color:#735f2a}
+.data-source-row em{grid-column:1/-1;color:#829a92;font-size:8px;font-style:normal;line-height:1.35}

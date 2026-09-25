@@ -300,3 +300,42 @@ def test_live_patrol_returns_practical_field_evidence_brief(monkeypatch):
     assert len(stop["field_tasks"]) >= 4
     assert "video" in stop["evidence_required"]
     assert data["road_route"]["geometry"]["type"]=="LineString"
+
+
+def test_predict_location_temporal_backtest_uses_real_holdout_contract(monkeypatch):
+    from app import main
+
+    async def fake_series(*args, **kwargs):
+        vals=[
+            ("2026-01-01T05:00:00Z",0.76,0.84),
+            ("2026-02-01T05:00:00Z",0.74,0.83),
+            ("2026-03-01T05:00:00Z",0.72,0.81),
+            ("2026-04-01T05:00:00Z",0.69,0.79),
+            ("2026-05-01T05:00:00Z",0.65,0.75),
+            ("2026-06-01T05:00:00Z",0.61,0.71),
+            ("2026-07-01T05:00:00Z",0.58,0.68),
+            ("2026-08-01T05:00:00Z",0.55,0.65),
+        ]
+        return {
+            "observations":[
+                {"datetime":d,"mean_ndvi":nd,"forest_fraction":fc,"cloud_masked_fraction":0.08,"id":f"S{i+1}"}
+                for i,(d,nd,fc) in enumerate(vals)
+            ],
+            "errors":[],
+            "source":"Sentinel-2 test series",
+        }
+
+    monkeypatch.setattr(main,"vegetation_series_ep",fake_series)
+    r=client.get("/api/intelligence/predict-location",params={
+        "lat":12.3375,"lon":75.8069,"start":"2026-01-01","end":"2026-08-31","max_observations":12,
+    })
+    assert r.status_code==200
+    data=r.json()
+    bt=data["analysis"]["temporal_backtest"]
+    assert bt["available"] is True
+    assert bt["validation_class"]=="REAL_SENTINEL_TEMPORAL_HOLDOUT"
+    assert bt["holdout_observations"]>=2
+    assert bt["mae"]>=0
+    assert bt["rmse"]>=0
+    assert 0 <= bt["interval_coverage_pct"] <= 100
+    assert "ground-truth" in bt["note"].lower()

@@ -104,7 +104,7 @@
       <aside id="inspector" class="right-panel">
         <header class="region-head">
           <div id="regionThumb" class="region-thumb">🌲</div>
-          <div class="region-copy"><h1 id="regionTitle">Kodagu Forest Region</h1><p id="coords">Karnataka, India</p></div>
+          <div class="region-copy"><h1 id="regionTitle">Kodagu Forest Region</h1><p id="coords">Karnataka, India</p><span id="dataModeBadge" class="data-mode-badge">REAL SOURCES • LOADING</span></div>
           <div class="severity-box"><b id="severityBadge" class="severity critical">ANALYZING</b><small id="incidentId">VR-LIVE</small></div>
         </header>
 
@@ -181,8 +181,13 @@
           <div class="analysis-grid"><article><h3>Warning</h3><div id="analysisWarning" class="big-status">—</div></article><article><h3>Coverage</h3><div id="analysisCoverage" class="big-status">—</div></article></div>
 
           <article class="detail-card analysis-area-card">
-            <div class="analysis-section-head"><div><h3>Area & Ecosystem Snapshot</h3><p>Live/derived information for the selected area. Missing provider values remain unavailable rather than estimated.</p></div><span id="analysisAreaFreshness" class="data-freshness">Waiting for data</span></div>
+            <div class="analysis-section-head"><div><h3>Area & Ecosystem Snapshot</h3><p>Live/derived information for the selected area. Missing provider values remain unavailable rather than fabricated.</p></div><span id="analysisAreaFreshness" class="data-freshness">Waiting for data</span></div>
             <div id="analysisAreaGrid" class="analysis-area-grid"><div class="empty-state">Select an area and run analysis.</div></div>
+          </article>
+
+          <article class="detail-card">
+            <div class="analysis-section-head"><div><h3>Real Data & Provenance</h3><p>Every selected-area source is listed with status, freshness, observation time and fallback semantics.</p></div><span id="dataIntegritySummary" class="data-freshness">Auditing sources…</span></div>
+            <div id="dataIntegrityPanel" class="data-integrity-panel"><div class="empty-state">Source provenance will appear after the selected area loads.</div></div>
           </article>
 
           <article class="detail-card">

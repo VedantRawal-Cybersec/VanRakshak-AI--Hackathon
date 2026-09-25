@@ -795,8 +795,75 @@ def earth_engine_catalog():
 def earth_engine_layer(layer_id: str, lat: float | None = None, lon: float | None = None, days: int = Query(30, ge=1, le=3650)):
     try:
         return ee.tile(layer_id, lat, lon, days)
-    except AdapterError as e:
-        raise HTTPException(503, str(e))
+    except AdapterError as primary_error:
+        # Public, credential-free fallbacks for dashboard raster layers. Keep
+        # provenance explicit: these substitutes remain useful without claiming
+        # they are the exact Earth Engine product requested.
+        fallback_date=(datetime.now(timezone.utc)-timedelta(days=2)).date().isoformat()
+        try:
+            if layer_id in {"dynamic_world_trees","dynamic_world_label","hansen_treecover"}:
+                spec=gfw_layer(gfw,"umd_tree_cover_density_2000",None,None,"high")
+                return {
+                    **spec,
+                    "requested_layer_id":layer_id,
+                    "fallback_used":True,
+                    "fallback_reason":str(primary_error),
+                    "fallback_semantics":"Tree-cover reference; not Dynamic World land-cover classification.",
+                    "source":"Global Forest Watch tree-cover density reference",
+                }
+            if layer_id=="hansen_lossyear":
+                spec=gfw_layer(gfw,"umd_tree_cover_loss",None,None,"high")
+                return {
+                    **spec,
+                    "requested_layer_id":layer_id,
+                    "fallback_used":True,
+                    "fallback_reason":str(primary_error),
+                    "fallback_semantics":"Hansen/GFW tree-cover loss history.",
+                    "source":"Global Forest Watch / Hansen",
+                }
+            if layer_id=="modis_burned_area":
+                spec=gfw_layer(gfw,"umd_tree_cover_loss_from_fires",None,None,"high")
+                return {
+                    **spec,
+                    "requested_layer_id":layer_id,
+                    "fallback_used":True,
+                    "fallback_reason":str(primary_error),
+                    "fallback_semantics":"Fire-related tree-cover loss history; not MODIS MCD64A1 BurnDate.",
+                    "source":"Global Forest Watch fire-related tree-cover loss",
+                }
+            if layer_id=="modis_lst":
+                spec=gibs.tile_spec("modis_terra_lst_day",fallback_date)
+                return {
+                    **spec,
+                    "requested_layer_id":layer_id,
+                    "fallback_used":True,
+                    "fallback_reason":str(primary_error),
+                    "fallback_semantics":"NASA GIBS MODIS Terra daytime land-surface temperature.",
+                }
+            if layer_id=="chirps_rainfall":
+                spec=gibs.tile_spec("imerg_precipitation_rate",fallback_date)
+                return {
+                    **spec,
+                    "requested_layer_id":layer_id,
+                    "fallback_used":True,
+                    "fallback_reason":str(primary_error),
+                    "fallback_semantics":"NASA GPM IMERG precipitation-rate visualization; not CHIRPS.",
+                }
+            if layer_id=="jrc_water_occurrence":
+                spec=gibs.tile_spec("opera_surface_water_hls",fallback_date)
+                return {
+                    **spec,
+                    "requested_layer_id":layer_id,
+                    "fallback_used":True,
+                    "fallback_reason":str(primary_error),
+                    "fallback_semantics":"NASA OPERA dynamic surface water; not long-term JRC occurrence frequency.",
+                }
+        except Exception as fallback_error:
+            raise HTTPException(
+                503,
+                f"{primary_error}; credential-free fallback also failed: {fallback_error}",
+            )
+        raise HTTPException(503, str(primary_error))
 
 
 @app.get("/api/earth-engine/value/{layer_id}")

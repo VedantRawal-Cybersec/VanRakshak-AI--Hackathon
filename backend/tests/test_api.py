@@ -240,3 +240,63 @@ def test_predict_location_returns_operational_forecast_intelligence(monkeypatch)
     assert len(fi["expected_impacts"]) >= 4
     assert "probability" in fi["uncertainty"]["note"].lower()
     assert "cause" in fi["causation_note"].lower()
+
+
+def test_live_patrol_returns_practical_field_evidence_brief(monkeypatch):
+    from app import main
+
+    async def fake_evidence(*args, **kwargs):
+        return {
+            "change":{
+                "candidate_area_ha":2.4,
+                "screening_confidence":0.84,
+                "before":{"id":"S2_BEFORE","datetime":"2026-01-01T05:00:00Z","cloud_cover":5},
+                "after":{"id":"S2_AFTER","datetime":"2026-02-01T05:00:00Z","cloud_cover":7},
+                "geojson":{
+                    "type":"FeatureCollection",
+                    "features":[{
+                        "type":"Feature",
+                        "properties":{"area_ha":2.4},
+                        "geometry":{"type":"Polygon","coordinates":[[[75.80,12.33],[75.81,12.33],[75.81,12.34],[75.80,12.34],[75.80,12.33]]]}
+                    }]
+                }
+            },
+            "warning":{"score":68},
+            "forest_doctor":{"probable_drivers":[{"driver":"Road-access pressure","relative_support_pct":61}]},
+            "action_plan":{"actions":[{"priority":"HIGH","what":"Ground verify","how":"Inspect the candidate polygon.","timeframe":"Within 24 h"}]},
+        }
+
+    async def fake_route(req):
+        return {
+            "ordering":{
+                "route":[{"id":"candidate-1","lat":12.335,"lon":75.805,"priority":80,"priority_band":"HIGH","why_selected":"Largest candidate polygon","order":1}],
+                "stop_count":1,
+                "ordering_mode":"ROAD_TIME_PRIORITY"
+            },
+            "road_route":{
+                "distance_km":4.2,
+                "duration_min":13.0,
+                "source":"OSRM / OpenStreetMap",
+                "geometry":{"type":"LineString","coordinates":[[75.8069,12.3375],[75.805,12.335]]},
+                "legs":[]
+            },
+            "status":"ROAD_ROUTE_READY"
+        }
+
+    monkeypatch.setattr(main, "evidence_chain_ep", fake_evidence)
+    monkeypatch.setattr(main, "patrol_road_route", fake_route)
+    r=client.get("/api/patrol/live", params={
+        "lat":12.3375,"lon":75.8069,"place":"Kodagu",
+        "before_date":"2026-01-01","after_date":"2026-02-01","max_points":5
+    })
+    assert r.status_code==200
+    data=r.json()
+    brief=data["operational_brief"]
+    assert brief["before_scene"]["id"]=="S2_BEFORE"
+    assert brief["after_scene"]["id"]=="S2_AFTER"
+    assert any("video" in x.lower() for x in brief["evidence_required"])
+    assert any("photo" in x.lower() for x in brief["evidence_required"])
+    stop=data["ordering"]["route"][0]
+    assert len(stop["field_tasks"]) >= 4
+    assert "video" in stop["evidence_required"]
+    assert data["road_route"]["geometry"]["type"]=="LineString"

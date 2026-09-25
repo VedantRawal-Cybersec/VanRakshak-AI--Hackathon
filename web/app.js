@@ -861,7 +861,7 @@ function drawPatrolOnMainMap(route,road){
     'line-color':fallback?'#f2bd4b':'#37e79c',
     'line-width':fallback?4:6,
     'line-opacity':.98,
-    'line-dasharray':fallback?[2,2]:[1,0]
+    'line-dasharray':fallback?[2,2]:[1,0.01]
   }},map.getLayer('labels')?'labels':undefined);
   state.active.set('patrol-route',{source:'src-patrol-route',layer:'lyr-patrol-route'});
   fitLineGeometry(geometry,map);
@@ -878,7 +878,7 @@ function renderPatrolMiniMap(route,road){
   state.patrolMap.on('load',()=>{
     const fallback=!road?.geometry;
     state.patrolMap.addSource('patrol-route-mini',{type:'geojson',data:{type:'Feature',properties:{fallback},geometry}});
-    state.patrolMap.addLayer({id:'patrol-route-mini-line',type:'line',source:'patrol-route-mini',paint:{'line-color':fallback?'#f2bd4b':'#37e79c','line-width':5,'line-opacity':.98,'line-dasharray':fallback?[2,2]:[1,0]}});
+    state.patrolMap.addLayer({id:'patrol-route-mini-line',type:'line',source:'patrol-route-mini',paint:{'line-color':fallback?'#f2bd4b':'#37e79c','line-width':5,'line-opacity':.98,'line-dasharray':fallback?[2,2]:[1,0.01]}});
     const pointFeatures=[
       {type:'Feature',properties:{order:0},geometry:{type:'Point',coordinates:[state.lon,state.lat]}},
       ...route.map((x,i)=>({type:'Feature',properties:{order:i+1},geometry:{type:'Point',coordinates:[x.lon,x.lat]}}))
@@ -1182,7 +1182,11 @@ $('demoScenarioSelect').onchange=()=>renderDemoScenarioMeta(state.demoScenarios.
 $('aiAssistantBtn').onclick=()=>{$('searchBox').focus();$('searchBox').placeholder='Ask: show fire risk near Bandipur, forest change in Kodagu…';toast('Type a forest question or place in the search bar')};
 $('openLayerDrawerEnv').onclick=openLayerDrawer;
 $('closeIntelligence').onclick=()=>$('intelligenceModal').classList.add('hidden');$('runPrediction').onclick=()=>runPrediction(false);$('runLocationPrediction').onclick=()=>runPrediction(true);$('runWhatIf').onclick=runWhatIf;
-$('closePatrol').onclick=()=>$('patrolModal').classList.add('hidden');$('runPatrol').onclick=()=>runPatrol(false);$('runDetectedPatrol').onclick=()=>runPatrol(true);
+$('closePatrol').onclick=closePatrol;$('runPatrol').onclick=()=>runPatrol(false);$('runDetectedPatrol').onclick=()=>runPatrol(true);
+$('showPatrolMainMap').onclick=()=>{closePatrol();showTab('overview');if(state.patrolRouteGeometry)fitLineGeometry(state.patrolRouteGeometry,map);else fitSelected();toast('Patrol route shown on main map')};
+$('patrolEvidenceFiles').onchange=e=>renderPatrolEvidenceFiles(e.target.files);
+$('patrolModal').addEventListener('click',e=>{if(e.target===$('patrolModal'))closePatrol()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('patrolModal').classList.contains('hidden'))closePatrol()});
 $('closeAlert').onclick=()=>$('alertModal').classList.add('hidden');$('refreshAlert').onclick=composeCurrentAlert;$('attachAlertPatrol').onclick=attachAlertPatrolRoute;$('copyAlert').onclick=copyAlertMessage;$('shareAlert').onclick=shareAlertMessage;$('whatsappAlert').onclick=whatsappAlertMessage;$('emailAlert').onclick=emailAlertMessage;
 $('openTime').onclick=()=>{$('timeModal').classList.remove('hidden');state.timeMap?.resize()};
 $('closeTime').onclick=()=>{if(state.timeTimer){clearInterval(state.timeTimer);state.timeTimer=null}$('playTime').textContent='▶ Play';$('timeModal').classList.add('hidden')};$('loadTime').onclick=loadTime;$('playTime').onclick=toggleTimePlay;
@@ -1193,7 +1197,7 @@ $$('[data-nav]').forEach(b=>b.onclick=async()=>{const n=b.dataset.nav;$$('[data-
 // Keep paired date controls synchronized.
 $('beforeDate').onchange=()=>{$('modalBeforeDate').value=$('beforeDate').value};$('afterDate').onchange=()=>{$('modalAfterDate').value=$('afterDate').value};$('modalBeforeDate').onchange=()=>{$('beforeDate').value=$('modalBeforeDate').value};$('modalAfterDate').onchange=()=>{$('afterDate').value=$('modalAfterDate').value};
 
-let resizeFrame=0;window.addEventListener('resize',()=>{if(resizeFrame)cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;state.trendChart?.resize();state.predictionChart?.resize();setInlineCompareSplit($('inlineCompareSlider')?.value||50);setModalCompareSplit($('compareSlider')?.value||50);[map,state.inlineBefore,state.inlineAfter,state.panelBefore,state.panelAfter,state.modalBefore,state.modalAfter,state.timeMap].forEach(m=>{try{m?.resize()}catch{}})})},{passive:true});
+let resizeFrame=0;window.addEventListener('resize',()=>{if(resizeFrame)cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;state.trendChart?.resize();state.predictionChart?.resize();setInlineCompareSplit($('inlineCompareSlider')?.value||50);setModalCompareSplit($('compareSlider')?.value||50);[map,state.inlineBefore,state.inlineAfter,state.panelBefore,state.panelAfter,state.modalBefore,state.modalAfter,state.timeMap,state.patrolMap].forEach(m=>{try{m?.resize()}catch{}})})},{passive:true});
 
 // Initial boot: exact dashboard layout opens on Kodagu with real source calls.
 (async function boot(){

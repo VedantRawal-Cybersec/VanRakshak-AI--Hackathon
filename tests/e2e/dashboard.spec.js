@@ -131,3 +131,75 @@ test('profile and alert center expose ecological impact and queue contracts', as
   await expect(page.locator('#alertSelectedPlan')).toHaveCount(1);
   await expect(page.locator('#alertCount')).toHaveCount(1);
 });
+
+
+test('selected forest prediction explains what why actions impact and confidence', async ({ page }) => {
+  const fatal=[];
+  page.on('pageerror', e => fatal.push(String(e)));
+
+  await page.route('**/api/analysis/evidence-chain**', async route => {
+    await route.fulfill({
+      status:200,
+      contentType:'application/json',
+      body:JSON.stringify({
+        change:{candidate_area_ha:3.4,mean_ndvi_change:-0.08,screening_confidence:0.81,fragmentation:{change:{patch_count_pct:9.5}}},
+        warning:{level:'WATCH',score:44,coverage:0.82,factors:[]},
+        climate:{temperature_anomaly_c:1.1,rainfall_deficit_pct:22},
+        carbon:{estimated_co2e_t:31.5},
+        forest_doctor:{probable_drivers:[{driver:'Road-access pressure',relative_support_pct:58}]},
+        action_plan:{actions:[{priority:'HIGH',what:'Verify candidate change',where:'Highest-change polygon',how:'Send patrol with geotagged evidence capture.',why:'Forecast is rising.',timeframe:'Within 24 h',expected_impact:'Stop further candidate-area expansion.',success_metric:'No new expansion on next scene.'}]},
+        evidence_chain:{items:[]},
+        sources:{}
+      })
+    });
+  });
+
+  await page.route('**/api/intelligence/predict-location**', async route => {
+    await route.fulfill({
+      status:200,
+      contentType:'application/json',
+      body:JSON.stringify({
+        historical_risk_proxy:[12,18,25,33],
+        dates:['2026-01-01','2026-02-01','2026-03-01','2026-04-01'],
+        projection:{
+          projected_values:[39,45,51,57],
+          forecast_dates:['2026-05-01','2026-06-01','2026-07-01','2026-08-01'],
+          lower:[34,39,43,47],
+          upper:[44,51,59,67],
+          uncertainty_sigma:3.2,
+          trend_per_step:6.1,
+          analysis:{direction:'INCREASING',strength:'MODERATE',confidence_pct:78,forecast_final:57,risk_level:'HIGH',observations:4,summary:'Risk trend is increasing.'},
+          pipeline:[]
+        },
+        analysis:{interpretation:'Observed vegetation decline is producing a rising screening-risk trend.',ndvi_change_first_to_latest:-0.12,forest_fraction_change_first_to_latest:-0.09,optical_quality_pct:91,latest_observation:'2026-04-01',scene_read_errors:0,current_risk_index:33,projected_risk_index:57,model_confidence_pct:78},
+        forecast_intelligence:{
+          what_is_happening:'VanRakshak detects a rising optical screening-risk trend.',
+          why_model_is_flagging_it:[
+            {factor:'Vegetation index trend',observation:'NDVI declined across the observed period.',meaning:'Negative NDVI contributes to the screening-risk proxy.'},
+            {factor:'Forest-fraction trend',observation:'Forest fraction declined.',meaning:'Forest-cover decline contributes to the proxy.'}
+          ],
+          recommended_actions:[{priority:'HIGH',what:'Verify change',how:'Inspect the candidate location.',why:'Prediction is rising.'}],
+          expected_impacts:[{metric:'Screening-risk trend',current:33,target:'Stable or lower',success_check:'Re-run after next scene.'}],
+          uncertainty:{confidence_pct:78,forecast_change:24,final_interval:{lower:47,upper:67},note:'Confidence is model quality, not event probability.'},
+          verification_next:['Re-run after the next suitable Sentinel-2 observation.'],
+          causation_note:'The model explains the signal, not the real-world cause.'
+        },
+        pipeline:[],
+        generated_at:'2026-09-25T06:00:00Z',
+        warning:'Prediction is a screening estimate.'
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('[data-nav="predictions"]').click();
+  await expect(page.locator('#intelligenceModal')).toBeVisible();
+  await page.locator('#runLocationPrediction').click();
+
+  await expect(page.locator('#predictionWhat')).toContainText('rising optical screening-risk trend');
+  await expect(page.locator('#predictionWhy')).toContainText('Vegetation index trend');
+  await expect(page.locator('#predictionActions')).toContainText('Verify candidate change');
+  await expect(page.locator('#predictionImpact')).toContainText('Screening-risk trend');
+  await expect(page.locator('#predictionConfidence')).toContainText('model confidence');
+  expect(fatal).toEqual([]);
+});

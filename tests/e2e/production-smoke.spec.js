@@ -74,3 +74,65 @@ test('Kodagu matched Sentinel-1 SAR analysis computes on production', async ({ r
   expect(body.after?.id).toBeTruthy();
   expect(body.method).toMatch(/Sentinel-1/i);
 });
+
+
+function tileXY(lat,lon,z){
+  const n=2**z;
+  const x=Math.floor((lon+180)/360*n);
+  const latRad=lat*Math.PI/180;
+  const y=Math.floor((1-Math.asinh(Math.tan(latRad))/Math.PI)/2*n);
+  return {x,y};
+}
+
+function renderedTileUrl(template,lat,lon,z=9){
+  const {x,y}=tileXY(lat,lon,z);
+  return template
+    .replaceAll('{z}',String(z))
+    .replaceAll('{x}',String(x))
+    .replaceAll('{y}',String(y));
+}
+
+function expectHistoricalObservation(observedAt,requestedDate,windowDays=90){
+  expect(observedAt).toBeTruthy();
+  const observed=Date.parse(observedAt);
+  const requested=Date.parse(requestedDate+'T00:00:00Z');
+  expect(Number.isFinite(observed)).toBeTruthy();
+  expect(Math.abs(observed-requested)).toBeLessThanOrEqual((windowDays+2)*86400000);
+}
+
+test('historical Landsat before-after comparisons render real tiles', async ({ request }) => {
+  test.setTimeout(360000);
+  const lat=12.3375,lon=75.8069;
+  const cases=[
+    {before:'1987-06-01',after:'2001-06-01',mode:'true_color'},
+    {before:'2001-06-01',after:'2011-06-01',mode:'ndvi'},
+  ];
+
+  for(const row of cases){
+    const q=new URLSearchParams({
+      lat:String(lat),lon:String(lon),
+      before_date:row.before,after_date:row.after,
+      mode:row.mode,window_days:'90',cloud_lt:'100'
+    });
+    const res=await request.get('/api/map/compare?'+q.toString(),{timeout:150000});
+    const text=await res.text();
+    console.log('HISTORICAL_COMPARE',row,text.slice(0,1200));
+    expect(res.ok(),text).toBeTruthy();
+
+    const body=JSON.parse(text);
+    for(const [side,requested] of [['before',row.before],['after',row.after]]){
+      const scene=body[side];
+      expect(scene?.item_id).toBeTruthy();
+      expect(scene?.source).toMatch(/Landsat/i);
+      expect(scene?.tile_url).toBeTruthy();
+      expectHistoricalObservation(scene.observed_at,requested,90);
+
+      const tileUrl=renderedTileUrl(scene.tile_url,lat,lon,9);
+      const tile=await request.get(tileUrl,{timeout:120000});
+      const tileText=tile.ok()?'':await tile.text();
+      expect(tile.ok(),`${side} ${requested} tile failed: ${tile.status()} ${tileText.slice(0,500)}`).toBeTruthy();
+      expect(tile.headers()['content-type']||'').toMatch(/image\/(png|jpeg|webp)/i);
+      expect((await tile.body()).length).toBeGreaterThan(100);
+    }
+  }
+});

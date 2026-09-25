@@ -5,7 +5,9 @@ import httpx
 from app.adapters import (
     EarthSearchAdapter, CopernicusAdapter, OpenMeteoAdapter, SoilGridsAdapter, Sentinel1ASFAdapter,
     NominatimAdapter, PhotonAdapter, GIBSAdapter, EONETAdapter, OverpassAdapter, GDELTAdapter, GFWAdapter, NASAPowerAdapter, PlanetaryComputerAdapter, GoogleNewsRSSAdapter, METNorwayAdapter,
+    USGSLandsatAdapter, GCPLandsatAdapter,
 )
+from app.services.historical_landsat_tiles import render_png as render_historical_landsat_png, parse_mtl
 
 LAT,LON=12.3375,75.8069
 
@@ -94,6 +96,42 @@ async def planetary_render_smoke(pc):
             rows.append({"mode":mode,"ok":ok,"status":r.status_code,"bytes":len(r.content),"content_type":ctype})
     return {"item_id":item.get("id"),"modes":rows,"ok":all(x["ok"] for x in rows)}
 
+async def historical_landsat_smoke(usgs,gcp):
+    from datetime import datetime, timezone
+    target=datetime(1987,6,1,tzinfo=timezone.utc)
+    item=await usgs.closest_scene(LAT,LON,target,90,100,550)
+    if not item:
+        raise RuntimeError("USGS Landsat STAC found no real observation within 550 days of 1987-06-01")
+    product=await gcp.resolve_item(item)
+    if not product:
+        raise RuntimeError(f"Google public Landsat mirror has no Collection-1 raster matching {item.get('id')}")
+    metadata=await gcp.metadata(product)
+    meta=parse_mtl(metadata)
+    calibration_keys=sorted(k for k in meta if k.startswith("REFLECTANCE_") or k.startswith("RADIANCE_"))
+    if not calibration_keys:
+        raise RuntimeError("Historical Landsat MTL exposes no radiometric calibration coefficients")
+    z=9; x,y=slippy_xy(LAT,LON,z)
+    rows=[]
+    urls=gcp.asset_urls(product)
+    for mode in ("true_color","ndvi"):
+        png=await asyncio.to_thread(render_historical_landsat_png,urls,metadata,mode,z,x,y)
+        ok=png.startswith(b"\\x89PNG\\r\\n\\x1a\\n") and len(png)>100
+        rows.append({"mode":mode,"ok":ok,"bytes":len(png)})
+    if not all(row["ok"] for row in rows):
+        raise RuntimeError("Historical Landsat raster renderer did not return valid PNGs")
+    props=item.get("properties") or {}
+    archive=item.get("_vanrakshak_archive") or {}
+    return {
+        "ok":True,
+        "item_id":item.get("id"),
+        "product_id":product,
+        "datetime":props.get("datetime"),
+        "date_offset_days":archive.get("date_offset_days"),
+        "calibration_keys":calibration_keys[:8],
+        "renders":rows,
+    }
+
+
 async def gibs_render_smoke(gibs):
     d=(date.today()-timedelta(days=2)).isoformat()
     z=7;x,y=slippy_xy(LAT,LON,z);bbox=mercator_tile_bbox(x,y,z)
@@ -124,7 +162,7 @@ async def check(name, coro, validator=lambda x: x is not None):
 async def main():
     earth=EarthSearchAdapter(); cop=CopernicusAdapter(); weather=OpenMeteoAdapter(); soil=SoilGridsAdapter()
     s1=Sentinel1ASFAdapter(); nom=NominatimAdapter(); photon=PhotonAdapter()
-    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter(); gnews=GoogleNewsRSSAdapter(); metno=METNorwayAdapter()
+    gibs=GIBSAdapter(); eonet=EONETAdapter(); overpass=OverpassAdapter(); gdelt=GDELTAdapter(); gfw=GFWAdapter(); power=NASAPowerAdapter(); pc=PlanetaryComputerAdapter(); gnews=GoogleNewsRSSAdapter(); metno=METNorwayAdapter(); usgs=USGSLandsatAdapter(); gcp=GCPLandsatAdapter()
     checks=await asyncio.gather(
         check("Earth Search Sentinel-2",earth.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
         check("Copernicus STAC",cop.latest_sentinel2(LAT,LON,60,80),lambda x:isinstance(x,dict) and "features" in x),
@@ -141,6 +179,7 @@ async def main():
         check("TiTiler Sentinel-2 six-mode rendering",satellite_render_smoke(earth),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Sentinel-2 filtered date/cloud rendering",filtered_satellite_smoke(earth),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Planetary Computer six-mode rendering",planetary_render_smoke(pc),lambda x:isinstance(x,dict) and x.get("ok") is True),
+        check("Historical Landsat 1987 archive rendering",historical_landsat_smoke(usgs,gcp),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("NASA GIBS environmental raster rendering",gibs_render_smoke(gibs),lambda x:isinstance(x,dict) and x.get("ok") is True),
         check("Overpass protected-area fallback",overpass.containing_protected_areas(LAT,LON),lambda x:isinstance(x,dict) and "elements" in x),
         check("GDELT forest news",gdelt.forest_news("Kodagu Karnataka","1week"),lambda x:isinstance(x,dict)),
@@ -148,7 +187,7 @@ async def main():
         check("GFW RADD radar layer metadata",asyncio.sleep(0, result=gfw.tile_layer("wur_radd_alerts")),lambda x:isinstance(x,dict) and "wur_radd_alerts" in x.get("tile_url","")),
     )
     print(json.dumps({"location":{"lat":LAT,"lon":LON},"checks":checks},indent=2))
-    core={"Earth Search Sentinel-2","Open-Meteo","MET Norway","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Sentinel-2 filtered date/cloud rendering","Planetary Computer six-mode rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
+    core={"Earth Search Sentinel-2","Open-Meteo","MET Norway","NASA GIBS","NASA EONET","NASA POWER","Planetary Computer Sentinel-2","TiTiler Sentinel-2 six-mode rendering","Sentinel-2 filtered date/cloud rendering","Planetary Computer six-mode rendering","Historical Landsat 1987 archive rendering","NASA GIBS environmental raster rendering","Google News RSS fallback"}
     failed_core=[x for x in checks if x["source"] in core and not x["ok"]]
     if failed_core:
         print("Core public provider smoke failure:",failed_core,file=sys.stderr)

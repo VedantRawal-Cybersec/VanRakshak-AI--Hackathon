@@ -303,8 +303,13 @@ function renderProfile(p){
   const gediMeta=forest.gedi_agbd_mg_per_ha!=null?'NASA GEDI biomass':(availability.gedi_biomass?.reason||'GEDI layer unavailable');
   const slopeDisplay=terrain.slope_deg!=null?fmt(terrain.slope_deg,1)+'°':'Unavailable';
   const slopeMeta=terrain.slope_deg!=null?'SRTM terrain':(availability.slope?.reason||'Slope source unavailable');
-  const carbonDisplay=carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,1)+' tCO₂e':'Not calculated';
-  const carbonMeta=carbon.estimated_co2e_t!=null?(carbon.density_source||carbon.estimate_class||'Reference-based estimate'):'Run evidence analysis to calculate carbon impact';
+  const carbonRef=evidence.carbon_reference||{};
+  const carbonDisplay=carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,1)+' tCO₂e':'Local carbon unavailable';
+  const carbonMeta=carbon.estimated_co2e_t!=null
+    ?`${carbon.density_source||carbon.estimate_class||'Location-specific mapped reference'} • selected-area estimate`
+    :carbonRef.estimated_co2e_t!=null
+      ?`IPCC regional context only: ${fmt(carbonRef.estimated_co2e_t,1)} tCO₂e • not a local measurement`
+      :'No location-specific biomass/carbon source available';
   const humanDisplay=human.mapped_features!=null?String(human.mapped_features):'Unavailable';
   const humanMeta=human.source||p.provenance?.human_pressure?.source||'OpenStreetMap / Overpass';
   const candidate=change.candidate_area_ha!=null?fmt(change.candidate_area_ha,2)+' ha':'Not measured';
@@ -561,13 +566,13 @@ function selectedAreaAlertCount(d){
 
 async function loadEvidence(showToast=true){if(!ensureLocation())return null;const revision=state.locationRevision;const before=$('beforeDate').value,after=$('afterDate').value;try{if(showToast)toast('Running satellite change + evidence fusion…',5000);const q=`/api/analysis/evidence-chain?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent(before)}&after_date=${encodeURIComponent(after)}&radius_km=2`;const d=await api(q);if(revision!==state.locationRevision)return null;state.evidence=d;renderEvidence(d);if(showToast)toast('Evidence analysis completed');return d}catch(e){if(showToast)toast('Analysis: '+String(e.message).slice(0,170));renderEvidence({warning:{level:'UNKNOWN',score:null,coverage:0,factors:[]},evidence_chain:{items:[]}});return null}}
 
-function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',String(selectedAreaAlertCount(d)));
+function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{},carbonRef=d.carbon_reference||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',String(selectedAreaAlertCount(d)));
   const sev=$('severityBadge');sev.textContent=w.level||'UNKNOWN';sev.className=`severity ${(w.level||'unknown').toLowerCase()}`;
   clearDynamicLayer('candidate-loss');if(c.geojson){addGeoPolygon('candidate-loss',c.geojson,'#ff473d')}
   const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);renderEnvironment(state.investigation,state.profile);renderAnalysisIntelligence();
   const items=d.evidence_chain?.items||[];$('keyEvidence').innerHTML=items.length?items.slice(0,4).map(x=>`<div class="evidence-item"><span class="evidence-check">✓</span><span>${esc(x.statement||x.source||x.kind)}</span></div>`).join(''):'<div class="empty-state">No complete evidence items returned.</div>';
   $('evidenceChain').innerHTML=items.length?items.map(x=>`<p><b>${esc(x.kind)}</b> · ${esc(x.source)} — ${esc(x.statement)}</p>`).join(''):'<p>Evidence sources are unavailable or incomplete for the selected dates.</p>';
-  setText('carbonImpact',carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,0):'—');setText('carbonImpactSub',carbon.estimated_co2e_t!=null?`tCO₂e • ${carbon.estimate_class||'estimated impact'}`:'Run analysis for reference-based carbon impact');
+  setText('carbonImpact',carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,0):'Local unavailable');setText('carbonImpactSub',carbon.estimated_co2e_t!=null?`tCO₂e • ${carbon.estimate_class||'location-specific mapped reference'}`:carbonRef.estimated_co2e_t!=null?`IPCC context ${fmt(carbonRef.estimated_co2e_t,0)} tCO₂e • NOT local measurement`:'No location-specific biomass source');
   const protectedSource=d.sources?.protected_area?.provenance?.source||'Protected-area intelligence';
   if(d.protected_area===true){setText('protectedStatus','Inside Boundary');setText('protectedSub',protectedSource)}else if(d.protected_area===false){setText('protectedStatus','Outside Boundary');setText('protectedSub',protectedSource)}else{setText('protectedStatus','Unknown');setText('protectedSub','Protected-area source unavailable')}
   const ndviNow=c.mean_ndvi_after??null,ndviDelta=c.mean_ndvi_change??null;
@@ -699,7 +704,9 @@ function renderPredictionIntelligence(d,useLocation){
 
   const impactTargets=[...(fi.expected_impacts||[])];
   if(ev.carbon?.estimated_co2e_t!=null){
-    impactTargets.push({metric:'Carbon exposure baseline',current:`${fmt(ev.carbon.estimated_co2e_t,1)} tCO₂e estimated`,target:'Prevent further candidate-area expansion',success_check:'Recompute carbon exposure only after a verified area change.'});
+    impactTargets.push({metric:'Local carbon exposure baseline',current:`${fmt(ev.carbon.estimated_co2e_t,1)} tCO₂e • location-specific mapped reference`,target:'Prevent further candidate-area expansion',success_check:'Recompute only after a verified area change and replace with field inventory when available.'});
+  }else if(ev.carbon_reference?.estimated_co2e_t!=null){
+    impactTargets.push({metric:'Carbon reference context',current:`${fmt(ev.carbon_reference.estimated_co2e_t,1)} tCO₂e • IPCC regional reference`,target:'Do not present as local carbon loss',success_check:'Use only as context until a location-specific biomass/carbon source is available.'});
   }
   const frag=evChange.fragmentation?.change||evChange.fragmentation_change||{};
   const fragValue=frag.patch_count_pct??frag.patch_density_pct??frag.edge_density_pct??null;
@@ -712,12 +719,20 @@ function renderPredictionIntelligence(d,useLocation){
 
   const uncertainty=fi.uncertainty||{};
   const interval=uncertainty.final_interval||{};
+  const backtest=uncertainty.backtest||d.analysis?.temporal_backtest||{};
   const next=fi.verification_next||[];
   confidenceEl.innerHTML=[
     predictionExplainRow(
       'Model confidence',
       `${uncertainty.confidence_pct??d.analysis?.model_confidence_pct??a.confidence_pct??'—'}% model confidence • optical quality ${d.analysis?.optical_quality_pct!=null?fmt(d.analysis.optical_quality_pct,0)+'%':'—'}.`,
       uncertainty.note||'Confidence describes fit and data quality, not the probability of deforestation.'
+    ),
+    predictionExplainRow(
+      'Real temporal holdout backtest',
+      backtest.available
+        ?`MAE ${fmt(backtest.mae,2)} • RMSE ${fmt(backtest.rmse,2)} • interval coverage ${fmt(backtest.interval_coverage_pct,0)}% across ${backtest.holdout_observations} held-out observation(s).`
+        :`Unavailable: ${backtest.reason||'not enough real observations'}`,
+      backtest.note||'Backtest evaluates held-out Sentinel-derived screening-risk values; it is not ground-truth deforestation classification accuracy.'
     ),
     predictionExplainRow(
       'Forecast uncertainty',

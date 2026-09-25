@@ -138,6 +138,23 @@ test('historical Landsat before-after comparisons render real tiles', async ({ r
     const earthText=await earth.text();
     console.log('EARTH_SEARCH_LANDSAT',row.before,earth.status(),earthText.slice(0,6000));
 
+    const usgs=await request.post('https://landsatlook.usgs.gov/stac-server/search',{data:{
+      collections:['landsat-c2l2-sr'],
+      intersects:{type:'Point',coordinates:[lon,lat]},
+      datetime:providerPayload.datetime,
+      limit:3
+    },timeout:120000});
+    const usgsText=await usgs.text();
+    console.log('USGS_LANDSAT_POINT',row.before,usgs.status(),usgsText.slice(0,7000));
+    const usgsBox=await request.post('https://landsatlook.usgs.gov/stac-server/search',{data:{
+      collections:['landsat-c2l2-sr'],
+      bbox:[lon-0.5,lat-0.5,lon+0.5,lat+0.5],
+      datetime:providerPayload.datetime,
+      limit:3
+    },timeout:120000});
+    const usgsBoxText=await usgsBox.text();
+    console.log('USGS_LANDSAT_BBOX',row.before,usgsBox.status(),usgsBoxText.slice(0,7000));
+
     const q=new URLSearchParams({
       lat:String(lat),lon:String(lon),
       before_date:row.before,after_date:row.after,

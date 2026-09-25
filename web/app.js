@@ -5,7 +5,7 @@ const state={
   lat:12.3375,lon:75.8069,place:'Kodagu Forest Region',regionSub:'Karnataka, India',
   investigation:null,profile:null,evidence:null,layers:[],active:new Map(),sourceHealth:null,
   inlineBefore:null,inlineAfter:null,panelBefore:null,panelAfter:null,modalBefore:null,modalAfter:null,
-  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null,demoScenarios:[]
+  timeMap:null,timeScenes:[],timeIndex:0,timeTimer:null,trendChart:null,predictionChart:null,demoScenarios:[]
 };
 
 const baseStyle={
@@ -299,11 +299,79 @@ async function doSearch(){const q=$('searchBox').value.trim();if(!q)return;try{c
 
 async function generateReport(){if(!ensureLocation())return;try{toast('Generating source-backed PDF report…',5000);const url=`/api/report/investigation?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent($('beforeDate').value)}&after_date=${encodeURIComponent($('afterDate').value)}`;const r=await fetch(url);if(!r.ok)throw new Error(`${r.status} ${await r.text()}`);const blob=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vanrakshak-investigation-report.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1200);toast('Investigation report generated')}catch(e){toast('Report: '+String(e.message).slice(0,170))}}
 
-async function runPrediction(useLocation=false){try{if(!useLocation){const values=$('predictionValues').value.split(/[\s,]+/).filter(Boolean).map(Number);if(values.length<3||values.some(v=>!Number.isFinite(v)))throw new Error('Enter at least three finite numeric values.');const result=await api('/api/intelligence/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({values,steps:3,floor:0,ceiling:100})});$('predictionResult').textContent=JSON.stringify({...result,source:'User-entered series'},null,2);return}if(!ensureLocation())return;$('predictionResult').textContent='Reading real Sentinel-2 vegetation observations…';const start=$('timeStart')?.value||isoDate(yearAgo),end=$('timeEnd')?.value||isoDate(now);const d=await api(`/api/intelligence/predict-location?lat=${state.lat}&lon=${state.lon}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&max_observations=8`);$('predictionResult').textContent=JSON.stringify(d,null,2)}catch(e){$('predictionResult').textContent=e.message}}
+function predictionMetric(label,value,sub=''){return `<article class="metric-card"><small>${esc(label)}</small><strong>${esc(value)}</strong><em>${esc(sub)}</em></article>`}
+function renderPredictionResult(d,useLocation){
+  const p=d.projection||d,a=p.analysis||{},observed=d.historical_risk_proxy||[],dates=d.dates||[],forecast=p.projected_values||[],future=p.forecast_dates||forecast.map((_,i)=>`Next ${i+1}`);
+  const current=useLocation?(d.analysis?.current_risk_index??observed.at(-1)):a.latest_value;
+  $('predictionSummary').innerHTML=[
+    predictionMetric('Current index',fmt(current,1),useLocation?'satellite-derived':'series value'),
+    predictionMetric('Forecast',fmt(a.forecast_final,1),a.risk_level||''),
+    predictionMetric('Trend',a.direction||'—',`${a.strength||''} • ${fmt(p.trend_per_step,2)}/step`),
+    predictionMetric('Confidence',a.confidence_pct!=null?`${fmt(a.confidence_pct,0)}%`:'—',`${a.observations||observed.length} observations`)
+  ].join('');
+  const pipeline=[...(d.pipeline||[]),...(p.pipeline||[])];
+  $('predictionUpdates').innerHTML=pipeline.map((x,i)=>`<div class="update-row"><b>${i+1}</b><span>${esc(x)}</span></div>`).join('');
+  $('predictionResult').textContent=JSON.stringify(d,null,2);
+  const chart=$('predictionChart');
+  if(chart&&typeof echarts!=='undefined'){
+    state.predictionChart??=echarts.init(chart);
+    const labels=[...dates,...future],observedLine=[...observed,...Array(forecast.length).fill(null)],forecastLine=[...Array(Math.max(0,observed.length-1)).fill(null),observed.at(-1)??null,...forecast],lower=[...Array(observed.length).fill(null),...(p.lower||[])],upper=[...Array(observed.length).fill(null),...(p.upper||[])];
+    state.predictionChart.setOption({animationDuration:350,tooltip:{trigger:'axis'},grid:{left:44,right:16,top:24,bottom:34},xAxis:{type:'category',data:labels,axisLabel:{color:'#829b93',fontSize:9}},yAxis:{type:'value',min:0,max:100,axisLabel:{color:'#829b93',fontSize:9},splitLine:{lineStyle:{color:'#16303a'}}},series:[{name:'Observed',type:'line',data:observedLine,symbolSize:6,lineStyle:{width:3}},{name:'Forecast',type:'line',data:forecastLine,symbolSize:6,lineStyle:{width:3,type:'dashed'}},{name:'Lower 95%',type:'line',data:lower,symbol:'none',lineStyle:{width:1,type:'dotted'}},{name:'Upper 95%',type:'line',data:upper,symbol:'none',lineStyle:{width:1,type:'dotted'}}]});
+    state.predictionChart.resize();
+  }
+  const interpretation=d.analysis?.interpretation||a.summary||'Prediction complete.';
+  setText('predictionStatus',`${interpretation} Updated ${(d.generated_at||p.generated_at||'').replace('T',' ').slice(0,19)} UTC`);
+}
+async function runPrediction(useLocation=false){
+  const btn=useLocation?$('runLocationPrediction'):$('runPrediction');
+  try{
+    btn.disabled=true;setText('predictionStatus',useLocation?'Reading Sentinel-2 observations and computing forest trend…':'Validating series and fitting robust forecast models…');$('predictionSummary').innerHTML='';$('predictionUpdates').innerHTML='<div class="update-row"><b>•</b><span>Analysis in progress…</span></div>';
+    let d;
+    if(!useLocation){
+      const values=$('predictionValues').value.split(/[\s,]+/).filter(Boolean).map(Number);
+      if(values.length<3||values.some(v=>!Number.isFinite(v)))throw new Error('Enter at least three finite numeric values.');
+      d=await api('/api/intelligence/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({values,steps:4,floor:0,ceiling:100})});d={...d,source:'User-entered series'};
+    }else{
+      if(!ensureLocation())return;
+      const start=$('timeStart')?.value||isoDate(threeYearsAgo),end=$('timeEnd')?.value||isoDate(now);
+      if(start>=end)throw new Error('Prediction start date must be before end date.');
+      d=await api(`/api/intelligence/predict-location?lat=${state.lat}&lon=${state.lon}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&max_observations=12`);
+    }
+    renderPredictionResult(d,useLocation);toast(useLocation?'Selected forest prediction updated':'Series projection updated');
+  }catch(e){setText('predictionStatus','Prediction failed: '+e.message);$('predictionResult').textContent=e.message;$('predictionUpdates').innerHTML=''}finally{btn.disabled=false}
+}
 async function runWhatIf(){try{if(!ensureLocation())return;const before=$('beforeDate').value,after=$('afterDate').value;if(!before||!after)throw new Error('Select real before/after dates first');const qs=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,temperature_delta_c:String(Number($('whatTemp').value||0)),rainfall_delta_pct:String(Number($('whatRain').value||0)),fire_delta:String(Number($('whatFire').value||0)),ndvi_delta:'0'});const d=await api('/api/intelligence/what-if-location?'+qs.toString());$('whatIfResult').textContent=JSON.stringify(d,null,2)}catch(e){$('whatIfResult').textContent=e.message}}
 
 function openPatrol(){if(!ensureLocation())return;$('patrolModal').classList.remove('hidden');if(!$('patrolPoints').value.trim())$('patrolPoints').value=`${state.lat.toFixed(5)},${state.lon.toFixed(5)},95`}
-async function runPatrol(useDetected=false){try{if(!ensureLocation())return;const before=$('beforeDate').value,after=$('afterDate').value;if(!before||!after)throw new Error('Select real before/after dates first');$('patrolResult').textContent='Building patrol stops from real Sentinel-2 change polygons…';const q=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,max_points:'5'});let d;if(useDetected){d=await api('/api/patrol/live?'+q.toString())}else{const points=$('patrolPoints').value.trim().split('\n').filter(Boolean).map((row,i)=>{const v=row.split(',').map(x=>Number(x.trim()));if(v.length!==3||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>90||Math.abs(v[1])>180||v[2]<0||v[2]>100)throw new Error(`Invalid stop on line ${i+1}: use lat,lon,priority (0–100).`);return {id:String(i+1),lat:v[0],lon:v[1],priority:v[2]}});if(!points.length)throw new Error('Enter at least one patrol stop.');d=await api('/api/patrol/road-route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_lat:state.lat,start_lon:state.lon,points})})}clearDynamicLayer('patrol-route');$('patrolResult').textContent=JSON.stringify(d,null,2);if(d.road_route?.geometry){clearDynamicLayer('patrol-route');map.addSource('src-patrol-route',{type:'geojson',data:{type:'Feature',properties:{},geometry:d.road_route.geometry}});map.addLayer({id:'lyr-patrol-route',type:'line',source:'src-patrol-route',paint:{'line-color':'#37e79c','line-width':4,'line-opacity':.95}});state.active.set('patrol-route',{source:'src-patrol-route',layer:'lyr-patrol-route'});fitSelected()}toast(d.road_route?'Road route loaded':'Road service unavailable; priority ordering is shown')}catch(e){$('patrolResult').textContent=e.message}}
+function fitLineGeometry(geometry){const coords=geometry?.coordinates||[];if(!coords.length)return;let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;for(const c of coords){if(!Array.isArray(c)||c.length<2)continue;minX=Math.min(minX,c[0]);maxX=Math.max(maxX,c[0]);minY=Math.min(minY,c[1]);maxY=Math.max(maxY,c[1])}if(Number.isFinite(minX))map.fitBounds([[minX,minY],[maxX,maxY]],{padding:70,maxZoom:13,duration:700})}
+function renderPatrolResult(d,useDetected){
+  const o=d.ordering||{},route=o.route||[],road=d.road_route||{};
+  $('patrolMetrics').innerHTML=[predictionMetric('Stops',String(route.length),useDetected?'detected hotspots':'entered targets'),predictionMetric('Road distance',road.distance_km!=null?`${fmt(road.distance_km,1)} km`:'Unavailable',o.ordering_mode||''),predictionMetric('ETA',road.duration_min!=null?`${fmt(road.duration_min,0)} min`:'—',road.source||'fallback ordering'),predictionMetric('Mode',d.status||'—',o.ordering_mode||'')].join('');
+  $('patrolStops').innerHTML=route.map((s,i)=>`<article class="route-stop"><b>${i+1}</b><div><strong>${esc(s.id)}</strong><small>${fmt(s.lat,5)}, ${fmt(s.lon,5)} • priority ${fmt(s.priority,0)}/100 (${esc(s.priority_band||'')})</small><em>${esc(s.why_selected||'')}</em></div></article>`).join('')||'<div class="empty-state">No patrol stops returned.</div>';
+  const steps=(road.legs||[]).flatMap((leg,li)=>(leg.steps||[]).slice(0,8).map(x=>({...x,leg:li+1})));
+  $('patrolInstructions').innerHTML=steps.length?`<h3>Road Guidance</h3>${steps.map(x=>`<div class="route-step"><b>L${x.leg}</b><span>${esc(x.instruction)} <small>${fmt(x.distance_m,0)} m • ${fmt(x.duration_min,1)} min</small></span></div>`).join('')}`:'<div class="drawer-note">No turn guidance returned. The ordered stops remain available, but straight lines must not be treated as roads.</div>';
+  $('patrolResult').textContent=JSON.stringify(d,null,2);
+  setText('patrolStatus',road.geometry?`Road route ready from ${road.source}. ${fmt(road.distance_km,1)} km / ~${fmt(road.duration_min,0)} min.`:`Road service unavailable. Showing ${o.ordering_mode||'fallback'} ordering only.`);
+  clearDynamicLayer('patrol-route');clearDynamicLayer('patrol-stops');
+  const features=[{type:'Feature',properties:{kind:'start'},geometry:{type:'Point',coordinates:[state.lon,state.lat]}},...route.map(s=>({type:'Feature',properties:{id:s.id,priority:s.priority,order:s.order},geometry:{type:'Point',coordinates:[s.lon,s.lat]}}))];
+  addGeoPoints('patrol-stops',features,'#ffd166');
+  if(road.geometry){map.addSource('src-patrol-route',{type:'geojson',data:{type:'Feature',properties:{},geometry:road.geometry}});map.addLayer({id:'lyr-patrol-route',type:'line',source:'src-patrol-route',paint:{'line-color':'#37e79c','line-width':4,'line-opacity':.95}},map.getLayer('labels')?'labels':undefined);state.active.set('patrol-route',{source:'src-patrol-route',layer:'lyr-patrol-route'});fitLineGeometry(road.geometry)}else fitSelected();
+}
+async function runPatrol(useDetected=false){
+  const btn=useDetected?$('runDetectedPatrol'):$('runPatrol');
+  try{
+    if(!ensureLocation())return;btn.disabled=true;setText('patrolStatus',useDetected?'Running change screening, extracting hotspots and requesting road travel matrix…':'Validating stops and requesting road travel matrix…');$('patrolMetrics').innerHTML='';$('patrolStops').innerHTML='<div class="empty-state">Building route…</div>';$('patrolInstructions').innerHTML='';
+    const before=$('beforeDate').value,after=$('afterDate').value;let d;
+    if(useDetected){
+      if(!before||!after)throw new Error('Select real before/after dates first');
+      const q=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after,max_points:'5'});d=await api('/api/patrol/live?'+q.toString());
+    }else{
+      const points=$('patrolPoints').value.trim().split('\n').filter(Boolean).map((row,i)=>{const v=row.split(',').map(x=>Number(x.trim()));if(v.length!==3||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>90||Math.abs(v[1])>180||v[2]<0||v[2]>100)throw new Error(`Invalid stop on line ${i+1}: use lat,lon,priority (0–100).`);return {id:String(i+1),lat:v[0],lon:v[1],priority:v[2]}});if(!points.length)throw new Error('Enter at least one patrol stop.');
+      d=await api('/api/patrol/road-route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_lat:state.lat,start_lon:state.lon,points})});
+    }
+    renderPatrolResult(d,useDetected);toast(d.road_route?'Road-aware patrol route loaded':'Road route unavailable; fallback ordering displayed',4500);
+  }catch(e){setText('patrolStatus','Patrol route failed: '+e.message);$('patrolResult').textContent=e.message;$('patrolStops').innerHTML='';$('patrolInstructions').innerHTML=''}finally{btn.disabled=false}
+}
 
 async function loadTime(){if(!ensureLocation())return;if(state.timeTimer){clearInterval(state.timeTimer);state.timeTimer=null;$('playTime').textContent='▶ Play'}try{validateCompareDates($('timeStart').value,$('timeEnd').value);const d=await api(`/api/time-machine?lat=${state.lat}&lon=${state.lon}&start=${$('timeStart').value}&end=${$('timeEnd').value}&limit=70`);state.timeScenes=d.scenes||[];state.timeIndex=0;$('timeline').innerHTML=state.timeScenes.length?state.timeScenes.map((x,i)=>`<button class="timeline-item" data-scene="${i}"><b>${esc(sceneDateLabel(x,x.requested_date))}</b><small>Cloud ${x.cloud_cover??'—'}%</small></button>`).join(''):'<div class="empty-state">No suitable scenes returned.</div>';$$('[data-scene]').forEach(btn=>btn.onclick=()=>showTimeScene(Number(btn.dataset.scene)));if(state.timeScenes.length)showTimeScene(0)}catch(e){$('timeline').innerHTML=`<div class="empty-state">${esc(e.message)}</div>`}}
 function showTimeScene(i){const scene=state.timeScenes[i];if(!scene)return;state.timeIndex=i;$$('[data-scene]').forEach(x=>x.classList.toggle('active',Number(x.dataset.scene)===i));if(!state.timeMap)state.timeMap=newMiniMap('timeMap',[state.lon,state.lat],9);state.timeMap.jumpTo({center:[state.lon,state.lat],zoom:9});addSceneRaster(state.timeMap,'time-raster',scene);setText('timeCaption',`${sceneDateLabel(scene,scene.requested_date)} • cloud ${scene.cloud_cover??'—'}% • ${scene.source||'Satellite archive'}`)}
@@ -335,7 +403,7 @@ $$('[data-nav]').forEach(b=>b.onclick=async()=>{const n=b.dataset.nav;$$('[data-
 // Keep paired date controls synchronized.
 $('beforeDate').onchange=()=>{$('modalBeforeDate').value=$('beforeDate').value};$('afterDate').onchange=()=>{$('modalAfterDate').value=$('afterDate').value};$('modalBeforeDate').onchange=()=>{$('beforeDate').value=$('modalBeforeDate').value};$('modalAfterDate').onchange=()=>{$('afterDate').value=$('modalAfterDate').value};
 
-window.addEventListener('resize',()=>{state.trendChart?.resize();setInlineCompareSplit($('inlineCompareSlider')?.value||50);setModalCompareSplit($('compareSlider')?.value||50);[state.inlineBefore,state.inlineAfter,state.panelBefore,state.panelAfter,state.modalBefore,state.modalAfter,state.timeMap].forEach(m=>{try{m?.resize()}catch{}})});
+window.addEventListener('resize',()=>{state.trendChart?.resize();state.predictionChart?.resize();setInlineCompareSplit($('inlineCompareSlider')?.value||50);setModalCompareSplit($('compareSlider')?.value||50);[state.inlineBefore,state.inlineAfter,state.panelBefore,state.panelAfter,state.modalBefore,state.modalAfter,state.timeMap].forEach(m=>{try{m?.resize()}catch{}})});
 
 // Initial boot: exact dashboard layout opens on Kodagu with real source calls.
 (async function boot(){

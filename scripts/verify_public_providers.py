@@ -102,10 +102,16 @@ async def historical_landsat_smoke(usgs,gcp):
     item=await usgs.closest_scene(LAT,LON,target,90,100,550)
     catalog="USGS Landsat STAC"
     if not item:
+        products=await gcp._discover_products(LAT,LON,target,550)
         item=await gcp.closest_scene(LAT,LON,target,90,100,550)
         catalog="Google Cloud public Landsat Collection 1"
+    else:
+        products=[]
     if not item:
-        raise RuntimeError("No real Landsat observation was discoverable within 550 days of 1987-06-01")
+        raise RuntimeError(
+            "No verified Landsat observation within 550 days of 1987-06-01; "
+            f"WRS candidates={gcp.wrs2_candidates(LAT,LON)[:5]} archive_products={products[:5]}"
+        )
     product=await gcp.resolve_item(item)
     if not product:
         raise RuntimeError(f"Google public Landsat mirror has no Collection-1 raster matching {item.get('id')}")

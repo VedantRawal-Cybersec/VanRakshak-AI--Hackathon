@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio, json, sys
-from app.main import predict_location_ep, remote_change_ep
+from app.main import predict_location_ep, remote_change_ep, patrol_road_route, _geojson_centroid
+from app.models import PatrolRequest
 
 LAT=12.3375
 LON=75.8069
@@ -52,6 +53,33 @@ async def main():
             "before_scene":(change.get("before") or {}).get("id"),
             "after_scene":(change.get("after") or {}).get("id"),
         })
+
+        ranked=sorted(features,key=lambda x:float(((x.get("properties") or {}).get("area_ha") or 0)),reverse=True)
+        patrol_points=[]
+        for i,feature in enumerate(ranked[:3]):
+            center=_geojson_centroid(feature)
+            if center is None:
+                continue
+            plat,plon=center
+            area=float(((feature.get("properties") or {}).get("area_ha") or 0))
+            patrol_points.append({"id":f"live-hotspot-{i+1}","lat":plat,"lon":plon,"priority":min(100,75+area*5)})
+        if patrol_points:
+            routed=await patrol_road_route(PatrolRequest(start_lat=LAT,start_lon=LON,points=patrol_points))
+            ordering=(routed.get("ordering") or {}).get("route") or []
+            road=routed.get("road_route") or {}
+            route_ok=len(ordering)==len(patrol_points) and routed.get("status") in {"ROAD_ROUTE_READY","ORDERING_ONLY"}
+            result["checks"].append({
+                "name":"detected-hotspot patrol execution",
+                "ok":bool(route_ok),
+                "status":routed.get("status"),
+                "stops":len(ordering),
+                "ordering_mode":(routed.get("ordering") or {}).get("ordering_mode"),
+                "road_distance_km":road.get("distance_km"),
+                "duration_min":road.get("duration_min"),
+                "routing_error":routed.get("routing_error"),
+            })
+        else:
+            result["checks"].append({"name":"detected-hotspot patrol execution","ok":True,"status":"NO_PATROL_TARGETS","stops":0})
     except Exception as exc:
         result["checks"].append({"name":"patrol change-analysis input","ok":False,"error":str(exc)[:1200]})
 

@@ -1153,21 +1153,34 @@ def prediction_ep(req: ThreatPredictionRequest):
 
 @app.get("/api/intelligence/predict-location")
 async def predict_location_ep(
-    lat: float, lon: float, start: str, end: str, max_observations: int = Query(8, ge=3, le=16), cloud_lt: float = Query(50, ge=0, le=100),
+    lat: float, lon: float, start: str, end: str, max_observations: int = Query(10, ge=3, le=16), cloud_lt: float = Query(50, ge=0, le=100),
 ):
     series=await vegetation_series_ep(lat,lon,start,end,max_observations,cloud_lt,1.5)
     rows=series["observations"]
     valid=[x for x in rows if x.get("mean_ndvi") is not None and x.get("forest_fraction") is not None]
-    if len(valid)<3: raise HTTPException(422,"At least three valid satellite observations are required")
-    n=min(2,len(valid)); base_nd=sum(x["mean_ndvi"] for x in valid[:n])/n; base_fc=sum(x["forest_fraction"] for x in valid[:n])/n
-    risk_values=[]
+    if len(valid)<3:
+        raise HTTPException(422,"At least three valid satellite observations are required")
+    valid=sorted(valid,key=lambda x:x.get("datetime") or "")
+    n=min(3,max(2,len(valid)//3))
+    base_nd=sum(float(x["mean_ndvi"]) for x in valid[:n])/n
+    base_fc=sum(float(x["forest_fraction"]) for x in valid[:n])/n
+    risk_values=[]; components=[]
     for x in valid:
-        nd=max(0,min(1,(base_nd-x["mean_ndvi"])/0.4))
-        fc=max(0,min(1,(base_fc-x["forest_fraction"])/0.30))
-        risk_values.append(round((nd*.55+fc*.45)*100,2))
-    req=ThreatPredictionRequest(values=risk_values,dates=[(x.get("datetime") or "")[:10] for x in valid],steps=3,floor=0,ceiling=100)
-    projection=predict_threat(req)
-    return {"historical_risk_proxy":risk_values,"dates":req.dates,"projection":projection,"source_series":valid,"label":"AI_ESTIMATE","warning":"Risk proxy is derived from optical vegetation/forest-fraction decline and projected with a transparent trend baseline. It is not a probability of illegal deforestation."}
+        nd=max(0,min(1,(base_nd-float(x["mean_ndvi"]))/0.4))
+        fc=max(0,min(1,(base_fc-float(x["forest_fraction"]))/0.30))
+        risk=round((nd*.55+fc*.45)*100,2)
+        risk_values.append(risk)
+        components.append({"date":(x.get("datetime") or "")[:10],"risk_index":risk,"ndvi_decline_component":round(nd*100,1),"forest_fraction_decline_component":round(fc*100,1),"mean_ndvi":x.get("mean_ndvi"),"forest_fraction":x.get("forest_fraction"),"cloud_masked_fraction":x.get("cloud_masked_fraction"),"scene_id":x.get("id") or x.get("scene")})
+    dates=[x["date"] for x in components]
+    projection=predict_threat(ThreatPredictionRequest(values=risk_values,dates=dates,steps=4,floor=0,ceiling=100))
+    first,last=valid[0],valid[-1]
+    ndvi_change=round(float(last["mean_ndvi"])-float(first["mean_ndvi"]),4)
+    forest_change=round(float(last["forest_fraction"])-float(first["forest_fraction"]),4)
+    cloud_values=[float(x.get("cloud_masked_fraction")) for x in valid if x.get("cloud_masked_fraction") is not None]
+    quality=max(0.0,min(100.0,100.0-(sum(cloud_values)/len(cloud_values)*100 if cloud_values else 0.0)))
+    p=projection.get("analysis") or {}
+    interpretation="Observed vegetation/forest decline is producing a rising screening-risk trend." if p.get("direction")=="INCREASING" else "The derived screening-risk trend is easing over the selected observation period." if p.get("direction")=="DECREASING" else "The derived screening-risk trend is broadly stable over the selected observation period."
+    return {"location":{"lat":lat,"lon":lon},"period":{"start":start,"end":end},"historical_risk_proxy":risk_values,"dates":dates,"projection":projection,"analysis":{"interpretation":interpretation,"ndvi_change_first_to_latest":ndvi_change,"forest_fraction_change_first_to_latest":forest_change,"latest_observation":dates[-1],"observation_count":len(valid),"scene_read_errors":len(series.get("errors") or []),"optical_quality_pct":round(quality,1),"baseline_mean_ndvi":round(base_nd,4),"baseline_forest_fraction":round(base_fc,4),"current_risk_index":risk_values[-1],"projected_risk_index":(projection.get("projected_values") or [None])[-1],"model_confidence_pct":p.get("confidence_pct")},"components":components,"source_series":valid,"source":series.get("source"),"pipeline":["Search real Sentinel-2 L2A scenes in the selected period","Read red/NIR pixels and mask cloud/shadow/snow using SCL","Compute mean NDVI and forest fraction for each observation","Convert decline from the early-period baseline into a 0-100 screening-risk index","Run robust ensemble trend forecasting and uncertainty analysis"],"generated_at":datetime.now(timezone.utc).isoformat(),"label":"AI_ESTIMATE","warning":"Risk index is a transparent screening indicator derived from optical vegetation/forest-fraction decline. It is not a probability of illegal deforestation and should be checked against seasonality, radar and field evidence."}
 
 
 @app.post("/api/intelligence/forest-doctor")
@@ -1482,23 +1495,23 @@ async def live_patrol_ep(
     bundle=await evidence_chain_ep(lat,lon,place,before_date,after_date,2.0,60)
     change=bundle.get("change") or {}
     features=((change.get("geojson") or {}).get("features") or [])
-    points=[]
+    points=[]; contexts={}
     base_priority=float((bundle.get("warning") or {}).get("score") or 50)
+    confidence=float(change.get("screening_confidence") or 0.0)
     for i,feature in enumerate(features[:max_points]):
         center=_geojson_centroid(feature)
         if center is None: continue
         plat,plon=center
-        points.append({"id":f"candidate-{i+1}","lat":plat,"lon":plon,"priority":max(1,min(100,base_priority-i*3))})
+        priority=max(1,min(100,base_priority*.65+confidence*100*.30+max(0,5-i)))
+        pid=f"candidate-{i+1}"
+        points.append({"id":pid,"lat":plat,"lon":plon,"priority":priority})
+        contexts[pid]={"candidate_polygon":i+1,"screening_confidence":round(confidence,3),"warning_score":round(base_priority,1),"centroid":{"lat":round(plat,6),"lon":round(plon,6)}}
     if not points:
         raise HTTPException(404,"No real candidate-change polygons were available to create patrol stops")
-    req=PatrolRequest(start_lat=lat,start_lon=lon,points=points)
-    routed=await patrol_road_route(req)
-    return {
-        **routed,
-        "candidate_source":"Sentinel-2 before/after candidate-change polygons",
-        "label":"DERIVED_FROM_REAL_DATA",
-        "warning":"Routing uses mapped OSM roads/tracks where available; field accessibility must still be verified.",
-    }
+    routed=await patrol_road_route(PatrolRequest(start_lat=lat,start_lon=lon,points=points))
+    for stop in (routed.get("ordering") or {}).get("route") or []:
+        stop["candidate_context"]=contexts.get(stop.get("id"))
+    return {**routed,"analysis":{"hotspots_used":len(points),"candidate_polygon_count":len(features),"candidate_area_ha":change.get("candidate_area_ha"),"screening_confidence":change.get("screening_confidence"),"warning_score":base_priority,"before_scene":(change.get("before") or {}).get("id"),"after_scene":(change.get("after") or {}).get("id"),"before_observed_at":(change.get("before") or {}).get("datetime"),"after_observed_at":(change.get("after") or {}).get("datetime")},"pipeline":["Run Sentinel-2 before/after multispectral change screening","Convert candidate-change polygons into patrol hotspot centroids","Assign evidence-based patrol priorities from warning/confidence signals","Request OSRM road travel-time matrix and order stops by travel cost + priority","Request final OSM road geometry, ETA, route legs and turn guidance"],"candidate_source":"Sentinel-2 before/after candidate-change polygons","generated_at":datetime.now(timezone.utc).isoformat(),"label":"DERIVED_FROM_REAL_DATA","warning":"Routing uses mapped OSM roads/tracks where available. Candidate polygons are screening evidence, not proof of deforestation; field accessibility and safety must be verified."}
 
 
 @app.post("/api/intelligence/compare-live")
@@ -1634,17 +1647,24 @@ async def fragmentation_ep(raster: UploadFile = File(...), threshold: float = Qu
 def carbon_ep(req: CarbonRequest): return carbon_estimate(req)
 
 @app.post("/api/patrol")
-def patrol_ep(req: PatrolRequest): return patrol_optimize(req)
+def patrol_ep(req: PatrolRequest):
+    try: return patrol_optimize(req)
+    except ValueError as e: raise HTTPException(422,str(e))
 
 @app.post("/api/patrol/road-route")
 async def patrol_road_route(req: PatrolRequest):
-    ordering = patrol_optimize(req)
-    points=[(req.start_lat, req.start_lon)] + [(x["lat"],x["lon"]) for x in ordering["route"]]
+    raw_points=[(req.start_lat,req.start_lon)]+[(p.lat,p.lon) for p in req.points]
+    table=None; table_error=None
+    try: table=await osrm.table(raw_points)
+    except Exception as exc: table_error=str(exc)
+    try: ordering=patrol_optimize(req,(table or {}).get("durations"),(table or {}).get("distances"))
+    except ValueError as e: raise HTTPException(422,str(e))
+    ordered_points=[(req.start_lat,req.start_lon)]+[(x["lat"],x["lon"]) for x in ordering["route"]]
     try:
-        road=await osrm.route(points)
-        return {"ordering":ordering,"road_route":road,"warning":"OSM road/track completeness varies in forests. Verify patrol accessibility in the field."}
-    except Exception as e:
-        return {"ordering":ordering,"road_route":None,"routing_error":str(e),"warning":"Road routing unavailable; straight-line priority ordering retained."}
+        road=await osrm.route(ordered_points)
+        return {"ordering":ordering,"road_route":road,"route_summary":{"stops":ordering.get("stop_count"),"road_distance_km":road.get("distance_km"),"estimated_duration_min":road.get("duration_min"),"ordering_mode":ordering.get("ordering_mode"),"routing_source":road.get("source")},"matrix_error":table_error,"status":"ROAD_ROUTE_READY","warning":"OSM road/track completeness varies in forests. Verify patrol accessibility and field safety before deployment."}
+    except Exception as exc:
+        return {"ordering":ordering,"road_route":None,"route_summary":{"stops":ordering.get("stop_count"),"straight_line_km":ordering.get("estimated_straight_line_km"),"ordering_mode":ordering.get("ordering_mode")},"matrix_error":table_error,"routing_error":str(exc),"status":"ORDERING_ONLY","warning":"Road geometry is unavailable; priority-aware fallback ordering is shown. Do not treat straight lines as drivable roads."}
 
 @app.get("/api/query")
 def nl_query(q: str = Query(..., min_length=3)): return parse_nl(q)

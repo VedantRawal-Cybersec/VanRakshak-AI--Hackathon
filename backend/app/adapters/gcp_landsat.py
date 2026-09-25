@@ -141,9 +141,24 @@ class GCPLandsatAdapter(BaseAdapter):
         *,
         broad: bool=False,
     ) -> list[tuple[float,str]]:
-        paths=self.wrs2_candidates(lat,lon)
-        if not paths:
+        compact_paths=self.wrs2_candidates(lat,lon)
+        if not compact_paths:
             return []
+
+        # The fast pass uses the immediate overlap neighbourhood. If those
+        # products exist but their MTL footprint rejects the requested point,
+        # the broad pass must genuinely expand beyond the same 3x3 cells.
+        # Expand only the WRS neighbourhood (not the date window) and keep MTL
+        # corner metadata as the final spatial authority.
+        paths=list(compact_paths)
+        if broad:
+            seed_path,seed_row=compact_paths[0]
+            for path_delta in (-2,-1,0,1,2):
+                for row_delta in (-2,-1,0,1,2):
+                    candidate=(self._wrap_path(seed_path+path_delta),seed_row+row_delta)
+                    if 1 <= candidate[1] <= 122 and candidate not in paths:
+                        paths.append(candidate)
+
         start_year=(target-timedelta(days=max_window_days)).year
         end_year=(target+timedelta(days=max_window_days)).year
         years=sorted(range(start_year,end_year+1),key=lambda y:abs(y-target.year))

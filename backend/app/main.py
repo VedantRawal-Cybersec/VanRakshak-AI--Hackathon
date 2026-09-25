@@ -34,7 +34,8 @@ from app.services.raster_analysis import ndvi_change, RasterInputError
 from app.services.fragmentation import metrics as fragmentation_metrics, FragmentationInputError
 from app.services.prediction import predict as predict_threat
 from app.services.climate import anomaly as climate_anomaly
-from app.services import historical_imagery\nfrom app.services.historical_landsat_tiles import render_png as render_historical_landsat_png, HistoricalTileError
+from app.services import historical_imagery
+from app.services.historical_landsat_tiles import render_png as render_historical_landsat_png, HistoricalTileError
 from app.services.tiles import satellite_layer, compare_layers, gfw_layer
 from app.services.remote_change import analyze as remote_change_analyze, RemoteChangeError, scene_summary, recovery_from_series
 from app.services.sar_change import analyze as sar_change_analyze, SARChangeError

@@ -266,7 +266,43 @@
     <div class="modal-card intelligence-modal-card">
       <div class="drawer-head"><div><small>EXPLAINABLE INTELLIGENCE</small><h2>Prediction & What-If</h2></div><button id="closeIntelligence" class="icon-btn">✕</button></div>
       <div class="intelligence-grid">
-        <article class="detail-card prediction-card"><h3>Threat Prediction</h3><p>Real Sentinel-2 trend analysis with robust ensemble forecasting, uncertainty and explanation.</p><p class="mini-note">Analyze Selected Forest reads the current Time Machine date range. Project My Series remains available for your own measured values.</p><textarea id="predictionValues" rows="2" placeholder="Optional: enter your own measured series, separated by commas"></textarea><div class="action-row"><button id="runLocationPrediction" class="small-primary">Analyze Selected Forest</button><button id="runPrediction" class="small-secondary">Project My Series</button></div><div id="predictionStatus" class="progress-banner">Ready for analysis.</div><div id="predictionSummary" class="prediction-summary"></div><div id="predictionChart" class="forecast-chart"></div><div id="predictionUpdates" class="update-list"></div><details class="raw-details"><summary>Technical output</summary><pre id="predictionResult" class="mini-output">—</pre></details></article>
+        <article class="detail-card prediction-card">
+          <h3>Threat Prediction</h3>
+          <p>Real Sentinel-2 trend analysis with robust ensemble forecasting, uncertainty and explanation.</p>
+          <p class="mini-note">Analyze Selected Forest reads the current Time Machine date range. Project My Series remains available for your own measured values.</p>
+          <textarea id="predictionValues" rows="2" placeholder="Optional: enter your own measured series, separated by commas"></textarea>
+          <div class="action-row"><button id="runLocationPrediction" class="small-primary">Analyze Selected Forest</button><button id="runPrediction" class="small-secondary">Project My Series</button></div>
+          <div id="predictionStatus" class="progress-banner">Ready for analysis.</div>
+          <div id="predictionSummary" class="prediction-summary"></div>
+
+          <div class="prediction-explain-grid">
+            <article class="prediction-explain-card">
+              <div class="prediction-explain-head"><span>01</span><h4>What Is Happening</h4></div>
+              <div id="predictionWhat" class="prediction-explain-body"><div class="empty-state">Run Analyze Selected Forest to interpret the current trend.</div></div>
+            </article>
+            <article class="prediction-explain-card">
+              <div class="prediction-explain-head"><span>02</span><h4>Why VanRakshak Is Flagging It</h4></div>
+              <div id="predictionWhy" class="prediction-explain-body"><div class="empty-state">Model drivers and evidence context will appear here.</div></div>
+            </article>
+            <article class="prediction-explain-card">
+              <div class="prediction-explain-head"><span>03</span><h4>What We Should Do</h4></div>
+              <div id="predictionActions" class="prediction-explain-body"><div class="empty-state">Recommended response actions will appear here.</div></div>
+            </article>
+            <article class="prediction-explain-card">
+              <div class="prediction-explain-head"><span>04</span><h4>Expected Impact</h4></div>
+              <div id="predictionImpact" class="prediction-explain-body"><div class="empty-state">Measurable expected impact targets will appear here.</div></div>
+            </article>
+          </div>
+
+          <article class="prediction-confidence-card">
+            <div class="prediction-explain-head"><span>05</span><h4>Confidence, Uncertainty & Next Verification</h4></div>
+            <div id="predictionConfidence" class="prediction-confidence-body"><div class="empty-state">Confidence and verification requirements will appear after analysis.</div></div>
+          </article>
+
+          <div id="predictionChart" class="forecast-chart"></div>
+          <div id="predictionUpdates" class="update-list"></div>
+          <details class="raw-details"><summary>Technical output</summary><pre id="predictionResult" class="mini-output">—</pre></details>
+        </article>
         <article class="detail-card"><h3>What-If Simulator</h3><div class="compact-fields"><label>Temperature Δ °C<input id="whatTemp" type="number" step="0.1" value="1"></label><label>Rainfall deficit Δ %<input id="whatRain" type="number" step="1" value="15"></label><label>Fire Δ 0–1<input id="whatFire" type="number" step="0.1" min="0" max="1" value="0.2"></label></div><button id="runWhatIf" class="full-primary">Simulate Scenario</button><pre id="whatIfResult" class="mini-output">—</pre></article>
       </div>
     </div>

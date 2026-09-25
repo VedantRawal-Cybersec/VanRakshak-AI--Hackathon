@@ -32,7 +32,7 @@ def status() -> dict:
             "ready": True,
             "method": "Sentinel-2 multispectral NDVI/NDMI/NBR/NDWI + SCL mask + IsolationForest corroboration + optional measured Sentinel-1 SAR change",
         },
-        "opencd": {
+        "supervised_benchmark": supervised_benchmark(),\n        "opencd": {
             "ready": bool(cfg_ok and ckpt_ok and repo_ok),
             "validated": validated,
             "repo_path_configured": bool(repo), "repo_path_exists": repo_ok,
@@ -45,3 +45,30 @@ def status() -> dict:
             "note": "A deep model is marked validated only when a real checkout/config/checkpoint and geographic-holdout metrics JSON exist. VanRakshak never invents model accuracy.",
         },
     }
+
+
+def supervised_benchmark() -> dict:
+    """Load measured metrics from the real Sentinel-2 + INPE PRODES labelled benchmark."""
+    path = Path(__file__).resolve().parents[3] / "ai" / "supervised_ndvi" / "benchmark_model.json"
+    if not path.exists():
+        return {"available": False, "note": "Real supervised benchmark artifact is not packaged."}
+    try:
+        data=json.loads(path.read_text(encoding="utf-8"))
+        test=((data.get("metrics") or {}).get("test") or {})
+        ds=data.get("dataset") or {}
+        return {
+            "available": True,
+            "precision": test.get("precision"), "recall": test.get("recall"),
+            "f1": test.get("f1"), "iou": test.get("iou"), "dice": test.get("dice"),
+            "false_positive_rate": test.get("fpr"), "accuracy": test.get("accuracy"),
+            "tp": test.get("tp"), "tn": test.get("tn"), "fp": test.get("fp"), "fn": test.get("fn"),
+            "test_n": test.get("n"),
+            "model_type": data.get("model_type"),
+            "dataset": ds.get("name"), "label_source": ds.get("labels"),
+            "region": ds.get("region"), "split_method": (data.get("split") or {}).get("method"),
+            "baseline": ((data.get("metrics") or {}).get("baseline_ndvi_drop") or {}),
+            "note": ds.get("limitation"),
+            "validation_class": "REAL_LABELLED_SPATIAL_BLOCK_HOLDOUT",
+        }
+    except Exception as exc:
+        return {"available": False, "note": f"Benchmark artifact could not be read: {exc}"}

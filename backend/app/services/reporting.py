@@ -96,7 +96,7 @@ def investigation_pdf(data: dict) -> bytes:
             ["IsolationForest overlap",str(cd.get("isolation_forest_candidate_overlap_fraction","—"))],
             ["Sentinel-1 corroboration",str(cv.get("status","—"))],
             ["Sentinel-1 candidate fraction",str(cv.get("sentinel1_candidate_fraction","—"))],
-            ["Ground-truth Precision/Recall/F1/IoU","Not claimed" if not gt.get("available") else "Available"],
+            ["Real labelled benchmark Precision/Recall/F1/IoU",("Not available" if not gt.get("available") else f"P {float(gt.get('precision') or 0)*100:.1f}% / R {float(gt.get('recall') or 0)*100:.1f}% / F1 {float(gt.get('f1') or 0)*100:.1f}% / IoU {float(gt.get('iou') or 0)*100:.1f}%")],
         ]
         story += [
             Paragraph("Model quality & validation evidence",styles["Section"]),

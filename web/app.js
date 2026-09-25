@@ -33,7 +33,12 @@ function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
 function pct(v,digits=0){if(v==null||Number.isNaN(Number(v)))return '—';const n=Number(v);return `${(Math.abs(n)<=1?n*100:n).toFixed(digits)}%`}
 function fmt(v,d=1){return v==null||!Number.isFinite(Number(v))?'—':Number(v).toFixed(d)}
 function setText(id,val){const el=$(id);if(el)el.textContent=val}
-function showTab(name){$$('.right-tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));$$('.right-panel-view').forEach(x=>x.classList.toggle('active',x.id===`tab-${name}`));requestAnimationFrame(()=>[state.panelBefore,state.panelAfter].forEach(m=>m?.resize()));}
+function showTab(name){
+  $('.right-tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
+  $('.right-panel-view').forEach(x=>x.classList.toggle('active',x.id===`tab-${name}`));
+  const inspector=$('inspector');if(inspector)inspector.scrollTo({top:0,behavior:'auto'});
+  requestAnimationFrame(()=>{[state.panelBefore,state.panelAfter].forEach(m=>{try{m?.resize()}catch{}});state.trendChart?.resize()});
+}
 function incidentId(){const d=new Date();return `VR-${d.getFullYear()}-${String(Math.abs(Math.round(state.lat*100))+Math.abs(Math.round(state.lon*100))).padStart(4,'0').slice(-4)}`}
 
 const now=new Date();
@@ -197,9 +202,85 @@ function renderProfile(p){if(!p)return;state.profile=p;const loc=p.location||{},
   $('profilePanel').innerHTML=`<div class="profile-grid"><div><small>Location</small><b>${esc(loc.display_name||state.place)}</b></div><div><small>Latest Sentinel scene</small><b>${esc(p.satellite?.latest_scene_time||'—')}</b></div><div><small>Dynamic World tree probability</small><b>${forest.dynamic_world_tree_probability!=null?pct(forest.dynamic_world_tree_probability,1):'—'}</b></div><div><small>GEDI biomass</small><b>${forest.gedi_agbd_mg_per_ha!=null?fmt(forest.gedi_agbd_mg_per_ha,1)+' Mg/ha':'—'}</b></div><div><small>Elevation</small><b>${terrain.elevation_m!=null?fmt(terrain.elevation_m,0)+' m':'—'}</b></div><div><small>Slope</small><b>${terrain.slope_deg!=null?fmt(terrain.slope_deg,1)+'°':'—'}</b></div><div><small>Temperature</small><b>${env.temperature_c??'—'} °C</b></div><div><small>Humidity</small><b>${env.humidity_pct??'—'}%</b></div><div><small>Mapped human pressure</small><b>${human.mapped_features??'—'}</b></div><div><small>Fire detections</small><b>${fire.detections_in_window??'—'}</b></div><div><small>Protected status</small><b>${esc(pa)}</b></div><div><small>Earth Engine</small><b>${p.earth_engine?.configured?'Configured':'Credential gated'}</b></div></div>`;
 }
 
-function renderEnvironment(inv,profile){const s=inv?.sources||{};const cur=s.weather?.ok?s.weather.data?.current||{}:{};const e=profile?.environment||{};const t=profile?.terrain||{};const soil=s.soil;const fire=s.fire;const cards=[
-  ['Temperature',cur.temperature_2m??e.temperature_c, '°C'],['Humidity',cur.relative_humidity_2m??e.humidity_pct,'%'],['Rain',cur.rain??e.rain_mm,' mm'],['Cloud cover',cur.cloud_cover??e.cloud_cover_pct,'%'],['Wind',cur.wind_speed_10m??e.wind_kmh,' km/h'],['Elevation',t.elevation_m,' m'],['Slope',t.slope_deg,'°'],['SoilGrids',soil?.ok?'Available':'Unavailable',''],['Fire source',fire?.ok?`${(fire.data||[]).length} • ${fire.provenance?.source||'NASA'}`:'Unavailable',''],['Earth Engine',profile?.earth_engine?.configured?'Configured':'Optional enhancement','']
-];$('environmentPanel').innerHTML=cards.map(([k,v,u])=>`<div class="env-card"><small>${esc(k)}</small><strong>${v==null?'—':esc(v)}${typeof v==='number'?u:''}</strong></div>`).join('')}
+function nearestHourlyMetric(data,field){
+  const times=data?.hourly?.time||[],values=data?.hourly?.[field]||[];
+  if(!times.length||!values.length)return {value:null,unit:data?.hourly_units?.[field]||'',time:null};
+  const currentTime=data?.current?.time||new Date().toISOString();
+  let i=times.findIndex(t=>t>=currentTime);if(i<0)i=times.length-1;
+  return {value:values[i],unit:data?.hourly_units?.[field]||'',time:times[i]};
+}
+function soilMetric(soilResult,name){
+  if(!soilResult?.ok)return {value:null,unit:'',depth:'',available:false};
+  const item=(soilResult.data?.properties?.layers||[]).find(x=>x.name===name);if(!item)return {value:null,unit:'',depth:'',available:false};
+  const depth=(item.depths||[])[0]||{},raw=depth.values?.mean,measure=item.unit_measure||{},factor=Number(measure.d_factor)||1;
+  return {value:raw==null?null:Number(raw)/factor,unit:measure.target_units||measure.mapped_units||'',depth:depth.label||'0–5 cm',available:raw!=null};
+}
+function envCard(label,value,unit='',meta='',wide=false,decimals=1){
+  let shown='—';
+  if(value!=null&&value!==''){
+    if(typeof value==='number'&&Number.isFinite(value))shown=`${fmt(value,decimals)}${unit?' '+unit:''}`;
+    else shown=`${esc(value)}${unit?' '+esc(unit):''}`;
+  }
+  return `<article class="env-card${wide?' wide':''}"><small>${esc(label)}</small><strong>${shown}</strong>${meta?`<em>${esc(meta)}</em>`:''}</article>`;
+}
+function renderEnvironment(inv,profile){
+  const sources=inv?.sources||{},weather=sources.weather||{},weatherData=weather.ok?weather.data||{}:{},cur=weatherData.current||{},units=weatherData.current_units||{};
+  const p=profile||{},e=p.environment||{},t=p.terrain||{},soil=sources.soil||p.soil||{},fire=sources.fire||{},human=p.human_pressure||{},forest=p.forest||{},sat=p.satellite||{},conservation=p.conservation||{};
+  const observed=cur.time||weather.provenance?.observed_at||weather.provenance?.fetched_at||null;
+  const hourlyFields={
+    precipProb:nearestHourlyMetric(weatherData,'precipitation_probability'),
+    soil0:nearestHourlyMetric(weatherData,'soil_moisture_0_to_1cm'),
+    soil1:nearestHourlyMetric(weatherData,'soil_moisture_1_to_3cm'),
+    et0:nearestHourlyMetric(weatherData,'et0_fao_evapotranspiration')
+  };
+  const soilNames=[
+    ['Soil pH','phh2o'],['Organic carbon','soc'],['Nitrogen','nitrogen'],['Clay','clay'],
+    ['Sand','sand'],['Silt','silt'],['Bulk density','bdod'],['Cation exchange capacity','cec']
+  ];
+  const protectedText=conservation?.inside===true||conservation?.inside_protected_area===true?'Inside protected area':conservation?.inside===false?'No containing protected area found':sources.protected_area?.ok?'Protected-area context loaded':'Not confirmed';
+  const coords=state.lat!=null&&state.lon!=null?`${state.lat.toFixed(5)}, ${state.lon.toFixed(5)}`:'—';
+  const sections=[];
+  sections.push('<div class="env-section-title">Selected Area & Weather</div>');
+  sections.push(envCard('Selected coordinates',coords,'',state.regionSub||state.place,true,0));
+  sections.push(envCard('Air temperature',cur.temperature_2m??e.temperature_c,units.temperature_2m||'°C',observed?`Observed ${observed}`:weather.provenance?.source||'Weather source',false,1));
+  sections.push(envCard('Relative humidity',cur.relative_humidity_2m??e.humidity_pct,units.relative_humidity_2m||'%',weather.provenance?.source||'',false,0));
+  sections.push(envCard('Rain',cur.rain??e.rain_mm,units.rain||'mm','Current interval',false,2));
+  sections.push(envCard('Precipitation',cur.precipitation,units.precipitation||'mm','Current interval',false,2));
+  sections.push(envCard('Cloud cover',cur.cloud_cover??e.cloud_cover_pct,units.cloud_cover||'%','Current sky cover',false,0));
+  sections.push(envCard('Wind speed',cur.wind_speed_10m??e.wind_kmh,units.wind_speed_10m||'km/h','10 m wind',false,1));
+  sections.push(envCard('Wind direction',cur.wind_direction_10m,units.wind_direction_10m||'°','Meteorological direction',false,0));
+  sections.push(envCard('Precipitation probability',hourlyFields.precipProb.value,hourlyFields.precipProb.unit||'%',hourlyFields.precipProb.time||'Nearest forecast hour',false,0));
+  sections.push(envCard('Surface soil moisture 0–1 cm',hourlyFields.soil0.value,hourlyFields.soil0.unit,hourlyFields.soil0.time||'Nearest forecast hour',false,3));
+  sections.push(envCard('Soil moisture 1–3 cm',hourlyFields.soil1.value,hourlyFields.soil1.unit,hourlyFields.soil1.time||'Nearest forecast hour',false,3));
+  sections.push(envCard('Reference evapotranspiration ET₀',hourlyFields.et0.value,hourlyFields.et0.unit,hourlyFields.et0.time||'Nearest forecast hour',false,2));
+
+  sections.push('<div class="env-section-title">Soil Chemistry & Texture • SoilGrids 0–5 cm</div>');
+  if(soil.ok){
+    for(const [label,name] of soilNames){const m=soilMetric(soil,name);sections.push(envCard(label,m.value,m.unit,m.depth||'0–5 cm',false,name==='phh2o'?1:2))}
+  }else{
+    sections.push(envCard('SoilGrids status',soil.error||'Unavailable','','No soil values are fabricated when the provider fails.',true,0));
+  }
+
+  sections.push('<div class="env-section-title">Terrain, Forest & Risk Context</div>');
+  sections.push(envCard('Elevation',t.elevation_m??weatherData.elevation,'m','Terrain / weather elevation',false,0));
+  sections.push(envCard('Slope',t.slope_deg,'°',t.slope_deg==null?'Requires terrain source / Earth Engine':'Terrain slope',false,1));
+  sections.push(envCard('Aspect',t.aspect_deg,'°',t.aspect_deg==null?'Requires terrain source / Earth Engine':'Terrain aspect',false,1));
+  sections.push(envCard('Fire detections / context',fire.ok?(fire.data||[]).length:null,'',fire.ok?(fire.provenance?.source||'NASA fire intelligence'):(fire.error||'Unavailable'),false,0));
+  sections.push(envCard('Protected-area status',protectedText,'',sources.protected_area?.provenance?.source||'Protected-area intelligence',false,0));
+  sections.push(envCard('Mapped human-pressure features',human.mapped_features,'','OpenStreetMap / Overpass',false,0));
+  sections.push(envCard('Available satellite scenes',sat.available_scenes,'',sat.latest_scene_time?`Latest ${sat.latest_scene_time}`:'Earth Search / Sentinel catalogue',false,0));
+  sections.push(envCard('Dynamic World tree probability',forest.dynamic_world_tree_probability,forest.dynamic_world_tree_probability==null?'':'','Earth Engine enhancement',false,3));
+  sections.push(envCard('GEDI biomass',forest.gedi_agbd_mg_per_ha,'Mg/ha','Earth Engine enhancement',false,1));
+  sections.push(envCard('Carbon density reference',forest.carbon_density_t_per_ha_reference,'tC/ha','Reference layer / Earth Engine enhancement',false,1));
+
+  sections.push('<div class="env-section-title">Source & Freshness</div>');
+  sections.push(envCard('Weather provider',weather.provenance?.source||'Unavailable','',weather.provenance?.freshness||'',true,0));
+  sections.push(envCard('Soil provider',soil.provenance?.source||(soil.ok?'SoilGrids':'Unavailable'),'',soil.provenance?.freshness||'REFERENCE',false,0));
+  sections.push(envCard('Earth Engine',p.earth_engine?.configured?'Configured':'Optional enhancement','','Missing EE-only values remain blank rather than fabricated.',false,0));
+
+  $('environmentPanel').innerHTML=sections.join('');
+  setText('environmentUpdated',observed?`Weather ${String(observed).replace('T',' ').slice(0,16)}`:'Environmental context loaded');
+}
 function renderNews(n){if(!n||!n.ok){$('newsPanel').innerHTML=`<div class="empty-state">${esc(n?.error||'News context unavailable')}</div>`;return}const arts=n.data?.articles||[];$('newsPanel').innerHTML=arts.length?arts.slice(0,10).map(a=>`<article class="news-item"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title||a.url)}</a><small>${esc(a.domain||'')} • ${esc(a.seendate||'')}</small></article>`).join(''):'<div class="empty-state">No matching recent articles returned.</div>'}
 
 async function loadEvidence(showToast=true){if(!ensureLocation())return null;const revision=state.locationRevision;const before=$('beforeDate').value,after=$('afterDate').value;try{if(showToast)toast('Running satellite change + evidence fusion…',5000);const q=`/api/analysis/evidence-chain?lat=${state.lat}&lon=${state.lon}&place=${encodeURIComponent(state.place)}&before_date=${encodeURIComponent(before)}&after_date=${encodeURIComponent(after)}&radius_km=2`;const d=await api(q);if(revision!==state.locationRevision)return null;state.evidence=d;renderEvidence(d);if(showToast)toast('Evidence analysis completed');return d}catch(e){if(showToast)toast('Analysis: '+String(e.message).slice(0,170));renderEvidence({warning:{level:'UNKNOWN',score:null,coverage:0,factors:[]},evidence_chain:{items:[]}});return null}}
@@ -207,7 +288,7 @@ async function loadEvidence(showToast=true){if(!ensureLocation())return null;con
 function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',w.score!=null?String(Math.round(Number(w.score))):'—');
   const sev=$('severityBadge');sev.textContent=w.level||'UNKNOWN';sev.className=`severity ${(w.level||'unknown').toLowerCase()}`;
   clearDynamicLayer('candidate-loss');if(c.geojson){addGeoPolygon('candidate-loss',c.geojson,'#ff473d')}
-  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);
+  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);
   const items=d.evidence_chain?.items||[];$('keyEvidence').innerHTML=items.length?items.slice(0,4).map(x=>`<div class="evidence-item"><span class="evidence-check">✓</span><span>${esc(x.statement||x.source||x.kind)}</span></div>`).join(''):'<div class="empty-state">No complete evidence items returned.</div>';
   $('evidenceChain').innerHTML=items.length?items.map(x=>`<p><b>${esc(x.kind)}</b> · ${esc(x.source)} — ${esc(x.statement)}</p>`).join(''):'<p>Evidence sources are unavailable or incomplete for the selected dates.</p>';
   setText('carbonImpact',carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,0):'—');setText('carbonImpactSub',carbon.estimated_co2e_t!=null?'tCO₂e estimated':'Requires biomass/carbon reference');
@@ -218,6 +299,17 @@ function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_
 
 function renderCauseBars(drivers){if(!drivers.length){$('causeBars').innerHTML='<div class="empty-state">Probable drivers require completed evidence analysis.</div>';return}$('causeBars').innerHTML=drivers.slice(0,4).map(x=>`<div class="cause-row"><span>${esc(x.driver)}</span><div class="cause-track"><div class="cause-fill" style="width:${clamp(Number(x.relative_support_pct)||0,0,100)}%"></div></div><b>${fmt(x.relative_support_pct,0)}%</b></div>`).join('')}
 function renderSignalBars(factors){if(!factors.length){$('signalBars').innerHTML='<div class="empty-state">Run analysis to populate source-backed signals.</div>';return}$('signalBars').innerHTML=factors.slice(0,5).map((x,i)=>{const v=clamp(Number(x.contribution)||0,0,100);return `<div class="signal-row"><span>${esc(x.factor)}</span><div class="signal-track"><div class="signal-fill ${i>1?'amber':''}" style="width:${Math.max(4,v)}%"></div></div><b>${fmt(v,0)}</b></div>`}).join('')}
+function renderActionPlan(plan,evidence){
+  const actions=plan?.actions||[],risk=plan?.risk_before||evidence?.warning||{};
+  setText('actionPlanRisk',risk.score!=null?`${risk.level||'RISK'} • ${fmt(risk.score,0)}/100`:'Insufficient evidence');
+  const render=(rows,compact=false)=>rows.map((a,i)=>{
+    const cls=String(a.priority||'routine').toLowerCase();
+    return `<article class="action-step ${esc(cls)}"><div class="action-step-head"><b>${i+1}. ${esc(a.what)}</b><span>${esc(a.priority||'')}</span></div><p><strong>WHERE</strong> ${esc(a.where)}</p><p><strong>HOW</strong> ${esc(a.how)}</p><div class="action-step-meta"><em>⏱ ${esc(a.timeframe||'')}</em><em>WHY • ${esc(a.why||'')}</em></div><div class="expected-impact"><b>Expected impact</b><span>${esc(a.expected_impact||'')}</span><small>Success check: ${esc(a.success_metric||'')}</small></div></article>`;
+  }).join('');
+  $('actionPlanOverview').innerHTML=actions.length?render(actions.slice(0,3),true):'<div class="empty-state">No action plan could be generated from the available evidence.</div>';
+  $('actionPlanAnalysis').innerHTML=actions.length?render(actions,false):'<div class="empty-state">No action plan could be generated from the available evidence.</div>';
+  setText('actionPlanOutcome',plan?.expected_outcome||'Expected impact will appear as measurable validation targets after analysis.');
+}
 
 function validateCompareDates(before,after){if(!before||!after||before>=after)throw new Error('Choose a before date earlier than the after date.');if(before<'1982-08-22')throw new Error('Supported satellite imagery begins on 1982-08-22.');if(after>isoDate(new Date()))throw new Error('Future dates have no satellite observations.');}
 function newMiniMap(container,center,zoom=11){return createEarthMap({container,center,zoom,style:{version:8,sources:{labels:baseStyle.sources.labels},layers:[baseStyle.layers[1]]},interactive:true,attributionControl:false})}
@@ -510,14 +602,14 @@ function toggleTimePlay(){if(state.timeTimer){clearInterval(state.timeTimer);sta
 function openLayerDrawer(){$('layerDrawer').classList.remove('hidden');renderLayers()}
 
 // Main interactions
-$('searchBtn').onclick=doSearch;$('searchBox').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});$('brandHome').onclick=()=>map.flyTo({center:[78.8,22.5],zoom:4.25});
+$('searchBtn').onclick=doSearch;$('searchBox').addEventListener('keydown',e=>{if(e.key==='Enter')doSearch()});$('brandHome').onclick=()=>{showTab('overview');map.flyTo({center:[78.8,22.5],zoom:4.25})};
 $$('[data-quick]').forEach(b=>b.onclick=()=>quickLayer(b.dataset.quick));$('layersBtn').onclick=openLayerDrawer;$('closeLayers').onclick=()=>$('layerDrawer').classList.add('hidden');['freshnessFilter','resolutionFilter','sourceFilter','renderFilter','cloudFilter','confidenceFilter','startDate','endDate'].forEach(id=>{const el=$(id);if(el)el.onchange=scheduleLayerFilterApply});if($('cloudFilter'))$('cloudFilter').oninput=scheduleLayerFilterApply;if($('applyFilters'))$('applyFilters').onclick=applyLayerFilters;if($('resetFilters'))$('resetFilters').onclick=resetLayerFilters;if($('satelliteModeQuick'))$('satelliteModeQuick').onchange=()=>quickLayer('satellite');
 $$('.right-tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 $('inlineCompareSlider').oninput=e=>setInlineCompareSplit(e.target.value);
 $('expandCompare').onclick=openFullCompare;$('openCompareBtn').onclick=openFullCompare;$('closeCompare').onclick=()=>$('compareModal').classList.add('hidden');$('loadCompare').onclick=loadFullCompare;$('compareSlider').oninput=e=>setModalCompareSplit(e.target.value);
 $('loadInlineCompare').onclick=()=>loadInlineCompare(true);$('runChangeAnalysis').onclick=()=>loadEvidence(true);$('runEvidenceAnalysis').onclick=()=>loadEvidence(true);
 $('reportBtn').onclick=generateReport;$('generateReportNews').onclick=generateReport;$('reportsTop').onclick=generateReport;$('viewOnMapBtn').onclick=fitSelected;$('patrolBtn').onclick=openPatrol;$('sendAlertBtn').onclick=openAlertCenter;
-$('refreshSources').onclick=()=>loadSourceHealth(true);$('healthBtn').onclick=()=>loadSourceHealth(true);$('liveDataTop').onclick=()=>{showTab('overview');$('liveDataSection').scrollIntoView({behavior:'smooth',block:'center'});loadSourceHealth(true)};$('analyticsTop').onclick=()=>{$('analyticsSection').scrollIntoView({behavior:'smooth',block:'center'});toast('Source-backed regional analytics')};
+$('refreshSources').onclick=()=>loadSourceHealth(true);$('healthBtn').onclick=()=>loadSourceHealth(true);$('liveDataTop').onclick=()=>{showTab('overview');const inspector=$('inspector');if(inspector)inspector.scrollTo({top:Math.max(0,$('liveDataSection').offsetTop-90),behavior:'smooth'});loadSourceHealth(true)};$('analyticsTop').onclick=async()=>{showTab('analysis');await loadEvidence(false);toast('Source-backed regional analytics loaded')};
 $('aboutTop').onclick=()=>$('aboutModal').classList.remove('hidden');$('closeAbout').onclick=()=>$('aboutModal').classList.add('hidden');
 $('demoScenarioSelect').onchange=()=>renderDemoScenarioMeta(state.demoScenarios.find(x=>x.id===$('demoScenarioSelect').value));$('loadDemoScenario').onclick=applyDemoScenario;
 $('aiAssistantBtn').onclick=()=>{$('searchBox').focus();$('searchBox').placeholder='Ask: show fire risk near Bandipur, forest change in Kodagu…';toast('Type a forest question or place in the search bar')};
@@ -529,12 +621,12 @@ $('openTime').onclick=()=>{$('timeModal').classList.remove('hidden');state.timeM
 $('closeTime').onclick=()=>{if(state.timeTimer){clearInterval(state.timeTimer);state.timeTimer=null}$('playTime').textContent='▶ Play';$('timeModal').classList.add('hidden')};$('loadTime').onclick=loadTime;$('playTime').onclick=toggleTimePlay;
 $('addBhuvan').onclick=()=>{const layer=$('bhuvanLayer').value.trim();if(!layer)return toast('Enter an exact Bhuvan-published WMS layer name');addRaster('bhuvan-custom',`/api/bhuvan/tile/{z}/{x}/{y}.png?layer=${encodeURIComponent(layer)}`,.78);toast('Bhuvan layer added')};
 
-$$('[data-nav]').forEach(b=>b.onclick=async()=>{const n=b.dataset.nav;$$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));if(n==='map')fitSelected();if(n==='forest')await quickLayer('forest');if(n==='alerts')await openAlertCenter();if(n==='analysis'){showTab('analysis');await loadEvidence(false)}if(n==='weather'){showTab('environment')}if(n==='fire'){await quickLayer('fire')}if(n==='soil'){showTab('environment');openLayerDrawer()}if(n==='predictions')$('intelligenceModal').classList.remove('hidden');if(n==='patrol')openPatrol();if(n==='reports')generateReport()});
+$('[data-nav]').forEach(b=>b.onclick=async()=>{const n=b.dataset.nav;$('[data-nav]').forEach(x=>x.classList.toggle('active',x===b));if(n==='map'){showTab('overview');fitSelected()}if(n==='forest')await quickLayer('forest');if(n==='alerts')await openAlertCenter();if(n==='analysis'){showTab('analysis');await loadEvidence(false)}if(n==='weather'){showTab('environment');renderEnvironment(state.investigation,state.profile)}if(n==='fire'){await quickLayer('fire')}if(n==='soil'){showTab('environment');renderEnvironment(state.investigation,state.profile);openLayerDrawer()}if(n==='predictions')$('intelligenceModal').classList.remove('hidden');if(n==='patrol')openPatrol();if(n==='reports')generateReport()});
 
 // Keep paired date controls synchronized.
 $('beforeDate').onchange=()=>{$('modalBeforeDate').value=$('beforeDate').value};$('afterDate').onchange=()=>{$('modalAfterDate').value=$('afterDate').value};$('modalBeforeDate').onchange=()=>{$('beforeDate').value=$('modalBeforeDate').value};$('modalAfterDate').onchange=()=>{$('afterDate').value=$('modalAfterDate').value};
 
-window.addEventListener('resize',()=>{state.trendChart?.resize();state.predictionChart?.resize();setInlineCompareSplit($('inlineCompareSlider')?.value||50);setModalCompareSplit($('compareSlider')?.value||50);[state.inlineBefore,state.inlineAfter,state.panelBefore,state.panelAfter,state.modalBefore,state.modalAfter,state.timeMap].forEach(m=>{try{m?.resize()}catch{}})});
+let resizeFrame=0;window.addEventListener('resize',()=>{if(resizeFrame)cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{resizeFrame=0;state.trendChart?.resize();state.predictionChart?.resize();setInlineCompareSplit($('inlineCompareSlider')?.value||50);setModalCompareSplit($('compareSlider')?.value||50);[map,state.inlineBefore,state.inlineAfter,state.panelBefore,state.panelAfter,state.modalBefore,state.modalAfter,state.timeMap].forEach(m=>{try{m?.resize()}catch{}})})},{passive:true});
 
 // Initial boot: exact dashboard layout opens on Kodagu with real source calls.
 (async function boot(){

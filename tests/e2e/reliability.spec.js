@@ -26,6 +26,7 @@ test('non-WebGL devices retain maps, tabs, timeline and manual prediction',async
   await expect(page.locator('#timeModal')).toBeVisible();
   await page.locator('#closeTime').click();
   await page.locator('[data-nav="predictions"]').click();
+  await page.locator('#predictionValues').evaluate(el=>el.closest('details')?.setAttribute('open',''));
   await page.locator('#predictionValues').fill('10,20,30');
   const request=page.waitForRequest(r=>r.url().endsWith('/api/intelligence/predict'));
   await page.locator('#runPrediction').click();

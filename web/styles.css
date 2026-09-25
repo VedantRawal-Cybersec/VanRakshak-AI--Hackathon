@@ -294,3 +294,14 @@ button,input,select,textarea{touch-action:manipulation}
 .data-source-row>span{font-size:7.5px;font-weight:800;border:1px solid #35505b;border-radius:999px;padding:3px 6px;color:#a9c5bc}
 .data-source-row.fallback>span{color:#f1cf72;border-color:#735f2a}
 .data-source-row em{grid-column:1/-1;color:#829a92;font-size:8px;font-style:normal;line-height:1.35}
+
+
+/* Model quality validation */
+.model-quality-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.model-quality-card{background:#081b24;border:1px solid #1a3944;border-radius:8px;padding:9px;min-width:0}
+.model-quality-card.ok{border-left:3px solid #2ac982}
+.model-quality-card.off{border-left:3px solid #657780}
+.model-quality-card small{display:block;color:#7f9991;font-size:8px;text-transform:uppercase;letter-spacing:.35px}
+.model-quality-card b{display:block;margin-top:4px;color:#edf8f4;font-size:11px;line-height:1.35;overflow-wrap:anywhere}
+.model-quality-card em{display:block;margin-top:4px;color:#829b93;font-size:8px;font-style:normal;line-height:1.4}
+@media(max-width:800px){.model-quality-grid{grid-template-columns:1fr}}

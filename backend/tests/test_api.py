@@ -181,3 +181,28 @@ def test_dashboard_has_no_hidden_global_date_filter():
     assert "satelliteModeQuick" in js
     assert "sourceFilter" in js and "renderFilter" in js
 
+
+
+def test_live_patrol_no_hotspots_is_valid_analysis(monkeypatch):
+    from app import main
+    async def fake_evidence(*args,**kwargs):
+        return {
+            "change":{
+                "geojson":{"type":"FeatureCollection","features":[]},
+                "candidate_area_ha":0,
+                "screening_confidence":0.12,
+                "before":{"id":"before","datetime":"2025-11-06T00:00:00Z"},
+                "after":{"id":"after","datetime":"2026-02-04T00:00:00Z"},
+            },
+            "warning":{"score":18},
+        }
+    monkeypatch.setattr(main,"evidence_chain_ep",fake_evidence)
+    r=client.get("/api/patrol/live",params={
+        "lat":12.3375,"lon":75.8069,"place":"Kodagu",
+        "before_date":"2025-11-06","after_date":"2026-02-04",
+    })
+    assert r.status_code==200
+    data=r.json()
+    assert data["status"]=="NO_PATROL_TARGETS"
+    assert data["ordering"]["route"]==[]
+    assert data["route_summary"]["stops"]==0

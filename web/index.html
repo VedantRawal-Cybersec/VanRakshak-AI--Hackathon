@@ -310,9 +310,57 @@
 
   <div id="patrolModal" class="modal hidden">
     <div class="modal-card patrol-modal-card">
-      <div class="drawer-head"><div><small>ACTION ENGINE</small><h2>Patrol Optimizer</h2></div><button id="closePatrol" class="icon-btn">✕</button></div>
-      <p class="mini-note">Use detected change polygons for an evidence-backed route, or enter <code>lat,lon,priority</code> stops. VanRakshak uses OSRM road travel time when available and explains every stop.</p>
-      <textarea id="patrolPoints" rows="5"></textarea><div class="action-row"><button id="runDetectedPatrol" class="small-primary">Build Route from Detected Hotspots</button><button id="runPatrol" class="small-secondary">Route Entered Stops</button></div><div id="patrolStatus" class="progress-banner">Ready to build a patrol route.</div><div id="patrolMetrics" class="prediction-summary"></div><div id="patrolStops" class="patrol-stops-list"></div><div id="patrolInstructions" class="route-instructions"></div><details class="raw-details"><summary>Technical route output</summary><pre id="patrolResult" class="mini-output">—</pre></details>
+      <div class="drawer-head patrol-sticky-head">
+        <div><small>ACTION ENGINE</small><h2>Precision Patrol Planner</h2></div>
+        <button id="closePatrol" class="icon-btn" aria-label="Close patrol planner">✕</button>
+      </div>
+
+      <div id="patrolScroll" class="patrol-scroll">
+        <p class="mini-note">Build an evidence-backed field route from detected Sentinel-2 candidate polygons or enter <code>lat,lon,priority</code> stops. Road geometry uses mapped OSM/OSRM routes when available; accessibility must still be confirmed in the field.</p>
+
+        <textarea id="patrolPoints" rows="4" aria-label="Patrol stops"></textarea>
+        <div class="action-row">
+          <button id="runDetectedPatrol" class="small-primary">Build Route from Detected Hotspots</button>
+          <button id="runPatrol" class="small-secondary">Route Entered Stops</button>
+          <button id="showPatrolMainMap" class="small-secondary" disabled>⌖ View Route on Main Map</button>
+        </div>
+
+        <div id="patrolStatus" class="progress-banner">Ready to build a patrol route.</div>
+        <div id="patrolMetrics" class="prediction-summary"></div>
+
+        <article class="detail-card patrol-map-card">
+          <div class="section-head"><div><h3>Patrol Route Map</h3><p class="mini-note">Ordered stops and the returned road/track route.</p></div></div>
+          <div id="patrolRouteMap" class="patrol-route-map"></div>
+          <div id="patrolMapFallback" class="drawer-note">Build a route to show the patrol path.</div>
+        </article>
+
+        <div class="patrol-grid">
+          <article class="detail-card">
+            <h3>Priority Stops</h3>
+            <div id="patrolStops" class="patrol-stops-list"></div>
+          </article>
+
+          <article class="detail-card">
+            <h3>Field Mission Brief</h3>
+            <div id="patrolBrief" class="patrol-brief"><div class="empty-state">Build a detected-hotspot route to generate a practical field brief.</div></div>
+          </article>
+        </div>
+
+        <article class="detail-card">
+          <h3>Required Real Field Evidence</h3>
+          <div id="patrolEvidenceRequirements" class="evidence-requirements"><div class="empty-state">Evidence requirements will load with the patrol route.</div></div>
+          <label class="field-media-upload">
+            <span>Capture / Attach real patrol photo or video</span>
+            <input id="patrolEvidenceFiles" type="file" accept="image/*,video/*" capture="environment" multiple />
+          </label>
+          <textarea id="patrolEvidenceNote" rows="3" placeholder="Field note: what was actually observed, access condition, visible disturbance, stop ID…"></textarea>
+          <div id="patrolEvidencePreview" class="patrol-evidence-preview"><div class="drawer-note">No field media attached yet. Attached media are previewed locally in this browser and are not treated as verified evidence until the patrol team records matching location/time/stop metadata.</div></div>
+        </article>
+
+        <div id="patrolInstructions" class="route-instructions"></div>
+
+        <details class="raw-details"><summary>Technical route output</summary><pre id="patrolResult" class="mini-output">—</pre></details>
+      </div>
     </div>
   </div>
 

@@ -101,3 +101,22 @@ def test_planetary_computer_tilejson_fallback(monkeypatch):
     assert "{z}" in out["tile_url"]
     assert out["resolution_m"]==10
 
+
+
+def test_open_meteo_terrain_uses_real_elevation_samples(monkeypatch):
+    import asyncio
+    from app.adapters.open_meteo import OpenMeteoAdapter
+
+    async def fake_get_json(self,url,params=None,**kwargs):
+        assert url=="https://api.open-meteo.com/v1/elevation"
+        assert params and "," in params["latitude"] and "," in params["longitude"]
+        return {"elevation":[884.0,874.0,894.0,880.0,888.0]}
+
+    monkeypatch.setattr(OpenMeteoAdapter,"get_json",fake_get_json)
+    out=asyncio.run(OpenMeteoAdapter().terrain(12.3375,75.8069,180))
+    assert out["elevation_m"]==884.0
+    assert out["slope_deg"]>0
+    assert 0 <= out["aspect_deg"] < 360
+    assert out["dem_resolution_m"]==90
+    assert "Copernicus DEM" in out["source"]
+    assert out["label"]=="DERIVED_METRIC"

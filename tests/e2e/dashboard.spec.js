@@ -80,3 +80,26 @@ test('overview, analysis and environmental panels expose operational detail', as
   const overflow=await page.locator('#inspector').evaluate(el => getComputedStyle(el).overflowY);
   expect(['auto','scroll']).toContain(overflow);
 });
+
+
+test('quick map filters are exclusive and update thematic legend', async ({ page }) => {
+  await page.goto('/');
+
+  await page.locator('[data-quick="fire"]').click();
+  await expect(page.locator('#mapLegendTitle')).toHaveText('Fire & Heat');
+  await expect(page.locator('#mapLegendMeta')).toContainText(/FIRMS|VIIRS|thermal|hotspot/i);
+  await expect(page.locator('#mapLegendTicks')).toContainText('Critical');
+  await expect(page.locator('.map-pill.active')).toHaveCount(1);
+  await expect(page.locator('[data-quick="fire"]')).toHaveClass(/active/);
+
+  await page.locator('[data-quick="ndvi"]').click();
+  await expect(page.locator('#mapLegendTitle')).toHaveText('NDVI');
+  await expect(page.locator('#mapLegendTicks')).toContainText('1');
+  await expect(page.locator('.map-pill.active')).toHaveCount(1);
+  await expect(page.locator('[data-quick="ndvi"]')).toHaveClass(/active/);
+
+  await page.locator('[data-quick="forest"]').click();
+  await expect(page.locator('#mapLegendTitle')).toHaveText('Forest Cover');
+  await expect(page.locator('#mapLegendTicks')).toContainText('100%');
+  await expect(page.locator('.map-pill.active')).toHaveCount(1);
+});

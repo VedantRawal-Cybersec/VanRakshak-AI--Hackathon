@@ -75,11 +75,30 @@ for button_id in buttons:
 required_ids={
     "map","regionTitle","areaAffected","aiConfidence","ndviChange","riskScore",
     "sourceList","keyEvidence","causeBars","signalBars","compareShell",
-    "reportBtn","patrolBtn","layersBtn","searchBtn"
+    "reportBtn","patrolBtn","layersBtn","searchBtn",
+    "dataModeBadge","dataIntegrityPanel","modelQualityPanel",
+    "predictionWhat","predictionWhy","predictionActions","predictionImpact","predictionConfidence",
+    "patrolRouteMap","patrolEvidenceFiles"
 }
 html_ids=set(re.findall(r'id="([^"]+)"',html))
 for x in sorted(required_ids-html_ids):
     errors.append(f"Approved dashboard reference section #{x} is missing")
+
+# 6) Production UI must not expose demo/synthetic scenario loaders.
+for forbidden in ("demoScenarioSelect","loadDemoScenario","PRE-FLIGHT VERIFIED DEMO"):
+    if forbidden in html or forbidden in js:
+        errors.append(f"Production dashboard still exposes forbidden demo control/text: {forbidden}")
+
+# 7) Critical live workflows must remain defined after UI refactors.
+for fn in ("doSearch","generateReport","renderDataIntegrity","renderModelQuality","runPrediction","runPatrol","openAlertCenter"):
+    if f"function {fn}" not in js and f"async function {fn}" not in js:
+        errors.append(f"Critical live workflow function {fn} is missing")
+
+# 8) What-if defaults must be neutral; hypothetical deltas cannot masquerade as observed data.
+for input_id in ("whatTemp","whatRain","whatFire"):
+    m=re.search(rf'id="{input_id}"[^>]*value="([^"]+)"',html)
+    if not m or float(m.group(1))!=0:
+        errors.append(f"Scenario input #{input_id} must default to zero in production")
 
 if errors:
     print("VanRakshak acceptance check FAILED")

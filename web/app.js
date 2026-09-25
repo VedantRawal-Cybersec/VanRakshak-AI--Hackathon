@@ -772,23 +772,60 @@ function refreshAlertMessage(){
   if(!$('alertMessage'))return;
   $('alertMessage').value=(state.alert?.message||'')+alertRouteAppendix();
 }
+function alertSeverityClass(level){
+  const v=String(level||'INFO').toUpperCase();
+  if(['CRITICAL','URGENT'].includes(v))return 'urgent';
+  if(['HIGH','WARNING'].includes(v))return 'high';
+  if(['WATCH','MEDIUM'].includes(v))return 'watch';
+  return 'info';
+}
+function renderAlertQueue(alerts){
+  const weight={CRITICAL:100,URGENT:95,HIGH:80,WARNING:75,WATCH:55,MEDIUM:50,INFO:20};
+  const rows=[...(alerts||[])].sort((a,b)=>(weight[String(b.severity||'INFO').toUpperCase()]||0)-(weight[String(a.severity||'INFO').toUpperCase()]||0));
+  state.alertQueue=rows;
+  setText('alertCount',`${rows.length} alert${rows.length===1?'':'s'}`);
+  setText('navAlertBadge',String(rows.length));
+  if(!rows.length){
+    $('alertQueue').innerHTML='<div class="empty-state">No active selected-area alert signals were generated from the available evidence.</div>';
+    $('alertSelectedPlan').innerHTML='<div class="drawer-note">No actionable alert is currently supported by the available selected-area evidence. Continue monitoring and rerun after new observations.</div>';
+    return;
+  }
+  $('alertQueue').innerHTML=rows.map((a,i)=>`<button class="alert-queue-item ${alertSeverityClass(a.severity)}${i===0?' active':''}" data-alert-item="${esc(a.id)}"><span class="alert-queue-severity">${esc(a.severity||'INFO')}</span><div><b>${esc(a.title||a.kind||'Alert')}</b><small>${esc(a.when||'Time unavailable')}</small><p>${esc(a.summary||'')}</p></div><span class="alert-queue-arrow">›</span></button>`).join('');
+  $$('[data-alert-item]').forEach(btn=>btn.onclick=()=>showAlertDetail(btn.dataset.alertItem));
+  showAlertDetail(rows[0].id);
+}
+function showAlertDetail(id){
+  const a=(state.alertQueue||[]).find(x=>String(x.id)===String(id));
+  if(!a)return;
+  $$('[data-alert-item]').forEach(x=>x.classList.toggle('active',x.dataset.alertItem===String(id)));
+  $('alertSelectedPlan').innerHTML=`<article class="detail-card selected-alert-detail ${alertSeverityClass(a.severity)}">
+    <div class="selected-alert-head"><div><small>${esc(a.kind||'ALERT')} • ${esc(a.when||'Time unavailable')}</small><h3>${esc(a.title||'Selected alert')}</h3></div><span>${esc(a.severity||'INFO')}</span></div>
+    <div class="selected-alert-grid">
+      <div><small>WHAT IS HAPPENING</small><p>${esc(a.summary||'No summary returned.')}</p></div>
+      <div><small>EVIDENCE</small><p>${esc(a.evidence||'No evidence description returned.')}</p></div>
+      <div><small>VANRAKSHAK PLAN</small><p>${esc(a.plan||'Field-verify before escalation.')}</p></div>
+      <div><small>EXPECTED IMPACT</small><p>${esc(a.expected_impact||'Validate that the condition does not worsen on the next observation.')}</p></div>
+    </div>
+  </article>`;
+}
 function renderAlert(d){
-  const c=d.change||{},top=d.top_patrol_target||{},period=d.detected_period||{},metrics=[
+  const c=d.change||{},top=d.top_patrol_target||{},period=d.detected_period||{},impact=d.impact_summary||{},metrics=[
+    predictionMetric('Active alerts',String((d.alerts||[]).length),'selected area'),
     predictionMetric('Severity',d.severity||'UNKNOWN','field triage'),
     predictionMetric('Warning score',d.warning_score!=null?fmt(d.warning_score,0)+'/100':'—','evidence-normalized'),
     predictionMetric('Candidate area',c.candidate_area_ha!=null?fmt(c.candidate_area_ha,2)+' ha':'—',`${c.candidate_polygons??0} polygon(s)`),
     predictionMetric('Confidence',c.screening_confidence!=null?pct(c.screening_confidence,0):'—','change screening'),
-    predictionMetric('NDVI change',c.mean_ndvi_change!=null?fmt(c.mean_ndvi_change,3):'—','mean before → after'),
+    predictionMetric('NDVI change',c.mean_ndvi_change!=null?fmt(c.mean_ndvi_change,3):'—','vegetation signal'),
     predictionMetric('Before',period.before||'—','satellite observation'),
-    predictionMetric('After',period.after||'—','satellite observation'),
-    predictionMetric('First target',top.area_ha!=null?fmt(top.area_ha,2)+' ha':'Priority point',top.lat!=null?`${fmt(top.lat,5)}, ${fmt(top.lon,5)}`:'—')
+    predictionMetric('After',period.after||'—','satellite observation')
   ];
   $('alertMetrics').innerHTML=metrics.join('');
-  $('alertContext').innerHTML=`<p><b>Location:</b> ${esc(d.location?.place||state.place)}</p><p><b>Coordinates:</b> ${fmt(d.location?.lat,6)}, ${fmt(d.location?.lon,6)}</p><p><b>Detected:</b> ${c.candidate_area_ha!=null?fmt(c.candidate_area_ha,2)+' ha candidate change':'No complete area'} across ${c.candidate_polygons??0} polygon(s).</p><p><b>Period:</b> ${esc(period.before||'—')} → ${esc(period.after||'—')}</p><p><b>Priority target:</b> ${top.lat!=null?`${fmt(top.lat,6)}, ${fmt(top.lon,6)}`:'Selected location'} ${top.area_ha!=null?`• ${fmt(top.area_ha,2)} ha`:''}</p>`;
+  renderAlertQueue(d.alerts||[]);
+  $('alertContext').innerHTML=`<p><b>Location:</b> ${esc(d.location?.place||state.place)}</p><p><b>Coordinates:</b> ${fmt(d.location?.lat,6)}, ${fmt(d.location?.lon,6)}</p><p><b>Detected:</b> ${c.candidate_area_ha!=null?fmt(c.candidate_area_ha,2)+' ha candidate change':'No complete area'} across ${c.candidate_polygons??0} polygon(s).</p><p><b>Period:</b> ${esc(period.before||'—')} → ${esc(period.after||'—')}</p><p><b>Priority target:</b> ${top.lat!=null?`${fmt(top.lat,6)}, ${fmt(top.lon,6)}`:'Selected location'} ${top.area_ha!=null?`• ${fmt(top.area_ha,2)} ha`:''}</p><p><b>Carbon impact:</b> ${impact.carbon?.estimated_co2e_t!=null?fmt(impact.carbon.estimated_co2e_t,1)+' tCO₂e estimated':'Not calculated'}</p><p><b>Protected context:</b> ${impact.protected_area===true?'Inside returned protected-area boundary':impact.protected_area===false?'Outside returned protected-area boundary':'Not confirmed'}</p><p><b>Vegetation:</b> ${esc(impact.vegetation?.condition||'unknown')}</p>`;
   const drivers=d.probable_drivers||[];
   $('alertDrivers').innerHTML=drivers.length?drivers.map(x=>`<div class="alert-driver"><span>${esc(x.driver)}</span><b>${x.support_pct!=null?fmt(x.support_pct,0)+'%':'evidence present'}</b></div>`).join(''):'<div class="drawer-note">No cause is established from the current evidence. Patrol should verify conditions without assuming a cause.</div>';
   refreshAlertMessage();
-  setText('alertStatus',`${d.severity||'UNKNOWN'} patrol brief ready • incident ${d.incident_id||'—'} • generated ${String(d.generated_at||'').replace('T',' ').slice(0,19)} UTC`);
+  setText('alertStatus',`${(d.alerts||[]).length} selected-area alert(s) • ${d.severity||'UNKNOWN'} overall • incident ${d.incident_id||'—'} • generated ${String(d.generated_at||'').replace('T',' ').slice(0,19)} UTC`);
 }
 async function composeCurrentAlert(){
   if($('alertModal')?.classList.contains('hidden'))return null;
@@ -798,6 +835,9 @@ async function composeCurrentAlert(){
     validateCompareDates(before,after);
     setText('alertStatus','Analyzing selected forest and composing patrol message…');
     $('alertMetrics').innerHTML='';
+    setText('alertCount','Analyzing…');
+    $('alertQueue').innerHTML='<div class="empty-state">Building selected-area alert queue from forest change, vegetation, fire, climate, fragmentation, protected-area and human-pressure evidence…</div>';
+    $('alertSelectedPlan').innerHTML='<div class="empty-state">Waiting for alert evidence and response plan…</div>';
     $('alertContext').innerHTML='<div class="empty-state">Reading source-backed forest evidence…</div>';
     $('alertDrivers').innerHTML='<div class="empty-state">Evaluating probable drivers…</div>';
     const q=new URLSearchParams({lat:String(state.lat),lon:String(state.lon),place:state.place,before_date:before,after_date:after});
@@ -805,8 +845,10 @@ async function composeCurrentAlert(){
     state.alert=d;state.alertPatrol=null;renderAlert(d);toast('Patrol alert generated from current evidence');return d;
   }catch(e){
     setText('alertStatus','Alert generation failed: '+e.message);
+    $('alertQueue').innerHTML=`<div class="empty-state">${esc(e.message)}</div>`;setText('alertCount','0 alerts');
+    $('alertSelectedPlan').innerHTML='<div class="drawer-note">Alert analysis could not be completed. No incident status is inferred from missing data.</div>';
     $('alertContext').innerHTML=`<div class="empty-state">${esc(e.message)}</div>`;
-    $('alertDrivers').innerHTML='';$('alertMessage').value='';state.alert=null;return null;
+    $('alertDrivers').innerHTML='';$('alertMessage').value='';state.alert=null;state.alertQueue=[];return null;
   }
 }
 async function openAlertCenter(){

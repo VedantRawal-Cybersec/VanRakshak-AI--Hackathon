@@ -119,6 +119,10 @@ def test_dashboard_uses_real_evidence_endpoints_for_core_actions():
     assert "source:'User-entered series'" in js
     assert "api('/api/intelligence/what-if'" not in js
     assert "$('patrolPoints').value.trim()" in js
+    assert "renderPredictionResult" in js
+    assert "renderPatrolResult" in js
+    assert "predictionChart" in js
+    assert "road travel matrix" in js
 
 
 def test_dashboard_filters_drive_live_layer_requests():

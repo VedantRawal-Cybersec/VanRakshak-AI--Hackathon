@@ -39,9 +39,22 @@ def _closest(features: list[dict], target: datetime):
 
 
 async def _public_landsat_scene(usgs,gcp,lat,lon,target,mode,window_days,cloud_lt):
-    if usgs is None or gcp is None:
+    if gcp is None:
         return None
-    item=await usgs.closest_scene(lat,lon,target,window_days,cloud_lt)
+
+    # Prefer the official Collection-2 catalogue when it resolves the request.
+    # Some old global scenes are absent from LandsatLook STAC search results,
+    # while their real Collection-1 files remain anonymously available in
+    # Google's public Landsat archive. In that case discover the public archive
+    # directly and still report the exact acquisition date + offset.
+    item=None
+    if usgs is not None:
+        try:
+            item=await usgs.closest_scene(lat,lon,target,window_days,cloud_lt)
+        except Exception:
+            item=None
+    if item is None and hasattr(gcp,"closest_scene"):
+        item=await gcp.closest_scene(lat,lon,target,window_days,cloud_lt,550)
     if not item:
         return None
     product=await gcp.resolve_item(item)

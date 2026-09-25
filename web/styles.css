@@ -39,3 +39,8 @@ button{cursor:pointer}
 @media(max-width:1400px){.workspace{grid-template-columns:minmax(0,1fr) 500px}.topbar{grid-template-columns:300px minmax(320px,1fr) 500px}.summary-card strong{font-size:15px}}
 @media(max-width:1180px){body{overflow:auto}.app-shell{height:auto;min-height:100vh;grid-template:62px auto/72px 1fr}.topbar{grid-template-columns:220px 1fr auto}.top-nav button:not(.avatar-btn){display:none}.workspace{grid-template-columns:1fr}.right-panel{min-height:800px}.left-stack{grid-template-rows:650px 300px}.sidebar .nav span:not(.nav-icon){display:none}.nav{grid-template-columns:1fr}.nav-badge{position:absolute;right:5px;top:5px}.assistant-card{display:none}}
 @media(max-width:800px){.app-shell{grid-template-columns:1fr;grid-template-areas:"top" "work"}.sidebar{display:none}.topbar{grid-template-columns:1fr auto;height:auto;padding:10px}.brand-copy small{display:none}.search-shell{grid-column:1/-1;grid-row:2}.workspace{grid-area:work}.left-stack{grid-template-rows:560px 460px}.summary-row{grid-template-columns:repeat(2,1fr);overflow:auto}.charts-row{grid-template-columns:1fr}.right-panel{padding:10px}.right-tabs{grid-template-columns:repeat(2,1fr)}.metric-strip,.impact-strip{grid-template-columns:repeat(2,1fr)}.cause-card{grid-template-columns:1fr}.cause-half{border-right:0;border-bottom:1px solid var(--line);padding-bottom:10px}.major-actions{grid-template-columns:1fr!important}.intelligence-grid,.compact-fields{grid-template-columns:1fr}.modal{padding:7px}.drawer{right:6px;left:6px;width:auto}.top-nav{gap:8px}}
+
+
+/* Keep Leaflet panes within their map, below drawers and modals. */
+.leaflet-container{isolation:isolate;background:#14231e;font:inherit}
+#selectedLayerDetails{margin-top:12px;overflow-wrap:anywhere}

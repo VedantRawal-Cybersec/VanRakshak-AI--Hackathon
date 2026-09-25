@@ -85,9 +85,9 @@ def test_dashboard_uses_real_evidence_endpoints_for_core_actions():
     assert '/api/intelligence/what-if-location?' in js
     assert '/api/patrol/live?' in js
     assert "/api/query?q=" not in js
-    assert "api('/api/intelligence/predict'" not in js
+    assert "source:'User-entered series'" in js
     assert "api('/api/intelligence/what-if'" not in js
-    assert "api('/api/patrol/road-route'" not in js
+    assert "$('patrolPoints').value.trim()" in js
 
 
 def test_dashboard_filters_drive_live_layer_requests():
@@ -145,3 +145,4 @@ def test_dashboard_has_no_hidden_global_date_filter():
     assert "['startDate','endDate'].forEach(id=>{if($(id))$(id).value=''});" in js
     assert "satelliteModeQuick" in js
     assert "sourceFilter" in js and "renderFilter" in js
+

@@ -84,6 +84,9 @@ class GIBSAdapter(BaseAdapter):
             parsed = date.fromisoformat(d)
         except ValueError as exc:
             raise AdapterError("GIBS date must use YYYY-MM-DD") from exc
+        minimum_year = 2012 if layer["identifier"].startswith("VIIRS") else 2000
+        if parsed.year < minimum_year:
+            raise AdapterError(f"{layer['label']} cannot supply {d}; use Landsat historical comparison for this date.")
         # Daily imagery can lag UTC day boundaries; never default a map tile to an incomplete future/today slot.
         if parsed >= date.today():
             parsed = date.today() - timedelta(days=1)
@@ -124,3 +127,4 @@ class GIBSAdapter(BaseAdapter):
         if "Capabilities" not in text and "WMTS" not in text:
             raise AdapterError("NASA GIBS returned an unexpected capabilities document")
         return {"ok": True, "service": "NASA GIBS WMTS"}
+

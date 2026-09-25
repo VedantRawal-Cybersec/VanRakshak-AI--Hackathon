@@ -32,7 +32,7 @@ class PlanetaryComputerAdapter(BaseAdapter):
             "collections": ["sentinel-2-l2a"],
             "bbox": [lon - 0.03, lat - 0.03, lon + 0.03, lat + 0.03],
             "datetime": f"{start.astimezone(timezone.utc).isoformat()}/{end.astimezone(timezone.utc).isoformat()}",
-            "query": {"eo:cloud_cover": {"lt": float(cloud_lt)}},
+            "query": {"eo:cloud_cover": {"lte": float(cloud_lt)}},
             "limit": int(limit),
         }
         data = await self.post_json(
@@ -45,6 +45,33 @@ class PlanetaryComputerAdapter(BaseAdapter):
             reverse=True,
         )
         return {**data, "features": feats}
+
+    async def search_optical(self, lat, lon, start, end, cloud_lt=60, limit=30, collection="sentinel-2-l2a"):
+        if collection == "sentinel-2-l2a":
+            return await self.search_sentinel2(lat, lon, start, end, cloud_lt, limit)
+        return await self.post_json(settings.planetary_computer_stac_url.rstrip("/") + "/search", json={
+            "collections": [collection],
+            "intersects": {"type": "Point", "coordinates": [lon, lat]},
+            "datetime": f"{start.isoformat()}/{end.isoformat()}",
+            "query": {"eo:cloud_cover": {"lte": float(cloud_lt)}},
+            "sortby": [{"field": "properties.datetime", "direction": "asc"}],
+            "limit": int(limit),
+        })
+
+    @staticmethod
+    def _landsat_params(mode):
+        common = [("collection", "landsat-c2-l2"), ("tile_format", "png"), ("nodata", "0")]
+        if mode in {"true_color", "false_color"}:
+            bands = ("red", "green", "blue") if mode == "true_color" else ("nir08", "red", "green")
+            return common + [("assets", b) for b in bands] + [("rescale", "7273,20000")]
+        pairs = {"ndvi": ("nir08", "red", "rdylgn"), "ndmi": ("nir08", "swir16", "rdbu"), "nbr": ("nir08", "swir22", "rdylgn"), "ndwi": ("green", "nir08", "blues")}
+        if mode not in pairs:
+            raise AdapterError(f"Unsupported Landsat mode: {mode}")
+        a, b, cmap = pairs[mode]
+        # USGS Collection 2 surface reflectance = DN * 0.0000275 - 0.2.
+        # The additive offset does not cancel out of the denominator.
+        expr = f"(({a}-{b})*0.0000275)/(({a}+{b})*0.0000275-0.4)"
+        return common + [("assets", a), ("assets", b), ("asset_as_band", "true"), ("expression", expr), ("rescale", "-1,1"), ("colormap_name", cmap)]
 
     async def latest_sentinel2(self, lat: float, lon: float, days: int = 45, cloud_lt: float = 80):
         end = datetime.now(timezone.utc)
@@ -88,7 +115,8 @@ class PlanetaryComputerAdapter(BaseAdapter):
         item_id = item.get("id")
         if not item_id:
             raise AdapterError("Planetary Computer item has no id")
-        params = self._mode_params(mode)
+        landsat = item.get("collection") == "landsat-c2-l2"
+        params = self._landsat_params(mode) if landsat else self._mode_params(mode)
         params.append(("item", item_id))
         tilejson = self.tilejson_url + "?" + urlencode(params, doseq=True, safe="(),/")
         data = await self.get_json(tilejson)
@@ -103,11 +131,12 @@ class PlanetaryComputerAdapter(BaseAdapter):
             "cloud_cover": p.get("eo:cloud_cover"),
             "tile_url": tiles[0],
             "tilejson_url": tilejson,
-            "source": "Microsoft Planetary Computer / Sentinel-2 L2A Data API",
-            "resolution_m": 10 if mode in {"true_color", "false_color", "ndvi", "ndwi"} else 20,
+            "source": "Microsoft Planetary Computer / " + ("Landsat Collection 2 L2" if landsat else "Sentinel-2 L2A Data API"),
+            "resolution_m": 30 if landsat else 10 if mode in {"true_color", "false_color", "ndvi", "ndwi"} else 20,
             "fallback_used": True,
-            "attribution": "Copernicus Sentinel data via Microsoft Planetary Computer",
+            "attribution": "USGS Landsat via Microsoft Planetary Computer" if landsat else "Copernicus Sentinel data via Microsoft Planetary Computer",
         }
 
     async def true_color_tile(self, item: dict):
         return await self.tile_spec(item, "true_color")
+

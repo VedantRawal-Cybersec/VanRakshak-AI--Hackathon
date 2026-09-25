@@ -42,7 +42,7 @@ def test_all_37_feature_capabilities_registered():
     assert [x["id"] for x in FEATURE_CAPABILITIES]==list(range(1,38))
 
 
-def test_titiler_satellite_modes_use_indexed_band_math_and_256_tiles():
+def test_titiler_satellite_modes_use_asset_names_and_256_tiles():
     from urllib.parse import urlparse, parse_qs
     from app.adapters.earth_search import EarthSearchAdapter
     item={
@@ -57,10 +57,10 @@ def test_titiler_satellite_modes_use_indexed_band_math_and_256_tiles():
         q=parse_qs(urlparse(spec["tile_url"]).query)
         assert q.get("tilesize")==["256"]
         assert spec["item_id"]=="S2-test"
-    assert parse_qs(urlparse(earth.tile_spec(item,"ndvi")["tile_url"]).query)["expression"]==["(b2-b1)/(b2+b1)"]
-    assert parse_qs(urlparse(earth.tile_spec(item,"ndmi")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
-    assert parse_qs(urlparse(earth.tile_spec(item,"nbr")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
-    assert parse_qs(urlparse(earth.tile_spec(item,"ndwi")["tile_url"]).query)["expression"]==["(b1-b2)/(b1+b2)"]
+    assert parse_qs(urlparse(earth.tile_spec(item,"ndvi")["tile_url"]).query)["expression"]==["(nir-red)/(nir+red)"]
+    assert parse_qs(urlparse(earth.tile_spec(item,"ndmi")["tile_url"]).query)["expression"]==["(nir-swir16)/(nir+swir16)"]
+    assert parse_qs(urlparse(earth.tile_spec(item,"nbr")["tile_url"]).query)["expression"]==["(nir-swir22)/(nir+swir22)"]
+    assert parse_qs(urlparse(earth.tile_spec(item,"ndwi")["tile_url"]).query)["expression"]==["(green-nir)/(green+nir)"]
 
 
 def test_nasa_power_normalizes_daily_climate_schema(monkeypatch):
@@ -95,3 +95,4 @@ def test_planetary_computer_tilejson_fallback(monkeypatch):
     assert out["item_id"]=="PC-S2"
     assert "{z}" in out["tile_url"]
     assert out["resolution_m"]==10
+

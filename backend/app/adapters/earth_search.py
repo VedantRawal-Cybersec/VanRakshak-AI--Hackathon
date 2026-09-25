@@ -32,7 +32,7 @@ class EarthSearchAdapter(BaseAdapter):
             "limit": max(1, min(limit, 100)),
         }
         if collection.startswith("sentinel") or collection.startswith("landsat"):
-            body["query"] = {"eo:cloud_cover": {"lt": cloud_lt}}
+            body["query"] = {"eo:cloud_cover": {"lte": cloud_lt}}
         return await self.post_json(f"{settings.earth_search_url}/search", json=body)
 
     async def latest_sentinel2(self, lat: float, lon: float, days: int = 45, cloud_lt: float = 50):
@@ -140,13 +140,13 @@ class EarthSearchAdapter(BaseAdapter):
         if mode == "true_color":
             params = [("url", item_url), ("assets", "visual"), ("resampling", "bilinear"), ("tilesize", "256")]
         elif mode == "ndvi":
-            params = common + [("assets", "red"), ("assets", "nir"), ("expression", "(b2-b1)/(b2+b1)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
+            params = common + [("assets", "red"), ("assets", "nir"), ("expression", "(nir-red)/(nir+red)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
         elif mode == "ndmi":
-            params = common + [("assets", "nir"), ("assets", "swir16"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
+            params = common + [("assets", "nir"), ("assets", "swir16"), ("expression", "(nir-swir16)/(nir+swir16)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
         elif mode == "nbr":
-            params = common + [("assets", "nir"), ("assets", "swir22"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
+            params = common + [("assets", "nir"), ("assets", "swir22"), ("expression", "(nir-swir22)/(nir+swir22)"), ("rescale", "-1,1"), ("colormap_name", "rdylgn")]
         elif mode == "ndwi":
-            params = common + [("assets", "green"), ("assets", "nir"), ("expression", "(b1-b2)/(b1+b2)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
+            params = common + [("assets", "green"), ("assets", "nir"), ("expression", "(green-nir)/(green+nir)"), ("rescale", "-1,1"), ("colormap_name", "blues")]
         elif mode == "false_color":
             params = [("url", item_url), ("assets", "nir"), ("assets", "red"), ("assets", "green"), ("asset_as_band", "true"), ("rescale", "0,5000"), ("resampling", "bilinear"), ("tilesize", "256")]
         else:
@@ -162,3 +162,4 @@ class EarthSearchAdapter(BaseAdapter):
             "source": "Element 84 Earth Search / Sentinel-2 L2A",
             "resolution_m": 10 if mode in {"true_color", "ndvi", "ndwi", "false_color"} else 20,
         }
+

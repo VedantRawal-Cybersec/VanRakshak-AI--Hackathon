@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -34,6 +34,7 @@ from app.services.raster_analysis import ndvi_change, RasterInputError
 from app.services.fragmentation import metrics as fragmentation_metrics, FragmentationInputError
 from app.services.prediction import predict as predict_threat
 from app.services.climate import anomaly as climate_anomaly
+from app.services import historical_imagery
 from app.services.tiles import satellite_layer, compare_layers, gfw_layer
 from app.services.remote_change import analyze as remote_change_analyze, RemoteChangeError, scene_summary, recovery_from_series
 from app.services.sar_change import analyze as sar_change_analyze, SARChangeError
@@ -66,6 +67,15 @@ app = FastAPI(
     description="India-first satellite forest intelligence, investigation and early-warning platform",
     lifespan=lifespan,
 )
+
+@app.exception_handler(AdapterError)
+async def provider_error_handler(request, exc):
+    return JSONResponse(status_code=503, content={"detail": str(exc), "status": "PROVIDER_UNAVAILABLE"})
+
+@app.exception_handler(httpx.RequestError)
+async def upstream_transport_error_handler(request, exc):
+    return JSONResponse(status_code=503, content={"detail": "The upstream provider could not be reached. Please retry.", "status": "PROVIDER_UNAVAILABLE"})
+
 
 weather = OpenMeteoAdapter(); copernicus = CopernicusAdapter(); soil = SoilGridsAdapter()
 overpass = OverpassAdapter(); firms = FIRMSAdapter(); pp = ProtectedPlanetAdapter()
@@ -518,6 +528,8 @@ async def map_satellite_layer(
         raise HTTPException(422,"start_date/end_date must use YYYY-MM-DD and start must be before end")
     primary_error=None
     try:
+        if end_dt and end_dt < historical_imagery.SENTINEL_START:
+            raise AdapterError("Historical date requires the Landsat archive")
         result=await satellite_layer(earth, lat, lon, mode, days, cloud_lt, start_dt, end_dt)
         result["fallback_used"]=False
         result["provider_chain"]=["Earth Search","TiTiler"]
@@ -530,7 +542,8 @@ async def map_satellite_layer(
     search_end=end_dt or datetime.now(timezone.utc)
     search_start=start_dt or (search_end-timedelta(days=days))
     try:
-        pdata=await pc.search_sentinel2(lat,lon,search_start,search_end,cloud_lt,30)
+        collection="landsat-c2-l2" if search_end < historical_imagery.SENTINEL_START else "sentinel-2-l2a"
+        pdata=await pc.search_optical(lat,lon,search_start,search_end,cloud_lt,30,collection)
         pitems=pdata.get("features") or []
         if pitems:
             def pc_key(item):
@@ -546,7 +559,7 @@ async def map_satellite_layer(
             fallback=await pc.tile_spec(pitems[0],mode)
             fallback["fallback_reason"]=primary_error
             fallback["provider_chain"]=["Earth Search/TiTiler failed","Microsoft Planetary Computer"]
-            fallback["filter_note"]="Same real Sentinel-2 L2A spectral mode; cloud/date filters are preserved."
+            fallback["filter_note"]="Requested spectral mode from the selected satellite archive; cloud/date filters are preserved."
             return fallback
         primary_error += " | Planetary Computer: no matching Sentinel-2 scene"
     except Exception as exc:
@@ -658,9 +671,12 @@ async def map_compare(
     except Exception:
         raise HTTPException(422, "Dates must use YYYY-MM-DD")
     try:
-        return await compare_layers(earth, lat, lon, b, a, mode, window_days, cloud_lt)
-    except AdapterError as e:
-        raise HTTPException(404, str(e))
+        result = await historical_imagery.compare(earth, pc, lat, lon, b, a, mode, window_days, cloud_lt)
+        if result is None:
+            raise HTTPException(404, "No cloud-filtered scene found near one or both dates. Widen the date window or cloud threshold.")
+        return result
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 @app.get("/api/time-machine")
@@ -673,17 +689,11 @@ async def time_machine(
         e = datetime.fromisoformat(end).replace(tzinfo=timezone.utc)
     except Exception:
         raise HTTPException(422, "start/end must use YYYY-MM-DD")
-    data = await earth.search(lat, lon, s, e, cloud_lt=cloud_lt, limit=limit)
-    scenes=[]
-    for f in data.get("features", []):
-        p=f.get("properties") or {}
-        spec=earth.tile_spec(f,"true_color")
-        scenes.append({
-            "id": f.get("id"), "datetime": p.get("datetime"), "cloud_cover": p.get("eo:cloud_cover"),
-            "bbox": f.get("bbox"), "item_url": earth.item_self_url(f), "tile_url": spec.get("tile_url"),
-        })
-    scenes.sort(key=lambda x: x.get("datetime") or "")
-    return {"count": len(scenes), "scenes": scenes, "source": "Element 84 Earth Search", "label": "DYNAMIC_RECENT"}
+    try:
+        return await historical_imagery.timeline(earth, pc, lat, lon, s, e, cloud_lt, limit)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
 
 
 @app.get("/api/map/gfw-layer")
@@ -1521,3 +1531,4 @@ if WEB.exists(): app.mount("/static", StaticFiles(directory=str(WEB)), name="sta
 def root():
     p = WEB / "index.html"
     return FileResponse(str(p)) if p.exists() else {"message": "VanRakshak AI API", "docs": "/docs"}
+

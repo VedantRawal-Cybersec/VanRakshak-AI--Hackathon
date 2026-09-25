@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28'%3E🌿%3C/text%3E%3C/svg%3E">
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#07131b" />
@@ -163,11 +164,12 @@
         </section>
 
         <section id="tab-before" class="right-panel-view">
-          <div class="panel-section-head"><div><h2>Before / After Investigation</h2><p>Real Sentinel-2 scenes matched around your chosen dates.</p></div><button id="openCompareBtn" class="small-primary">Open Full View</button></div>
+          <div class="panel-section-head"><div><h2>Before / After Investigation</h2><p>Dated Landsat (1982 onward) and Sentinel-2 scenes; actual capture dates are shown.</p></div><button id="openCompareBtn" class="small-primary">Open Full View</button></div>
           <div class="date-grid"><label>Before<input id="beforeDate" type="date" /></label><label>After<input id="afterDate" type="date" /></label></div>
           <button id="loadInlineCompare" class="full-primary">Load Real Satellite Comparison</button>
           <div class="mini-note" id="compareMeta">Select or search a region.</div>
           <div class="panel-inline-compare"><div id="beforePanelMap"></div><div id="afterPanelMap"></div></div>
+          <button id="openTime" class="full-secondary">Open Forest Time Machine</button>
           <button id="runChangeAnalysis" class="full-secondary">Run AI Change + Evidence Analysis</button>
           <div id="changeResult" class="result-card">No change analysis has been run yet.</div>
         </section>
@@ -224,7 +226,7 @@
 
   <div id="timeModal" class="modal hidden">
     <div class="modal-card time-modal-card">
-      <div class="drawer-head"><div><small>FOREST TIME MACHINE</small><h2>Historical Sentinel-2 Scenes</h2></div><button id="closeTime" class="icon-btn">✕</button></div>
+      <div class="drawer-head"><div><small>FOREST TIME MACHINE</small><h2>Historical Satellite Scenes</h2></div><button id="closeTime" class="icon-btn">✕</button></div>
       <div class="compare-controls"><label>Start<input id="timeStart" type="date" /></label><label>End<input id="timeEnd" type="date" /></label><button id="loadTime" class="small-primary">Load Timeline</button><button id="playTime" class="small-secondary">▶ Play</button></div>
       <div id="timeMap" class="time-map"></div><div id="timeCaption" class="mini-note">Choose a scene below.</div><div id="timeline" class="timeline"></div>
     </div>
@@ -234,7 +236,7 @@
     <div class="modal-card intelligence-modal-card">
       <div class="drawer-head"><div><small>EXPLAINABLE INTELLIGENCE</small><h2>Prediction & What-If</h2></div><button id="closeIntelligence" class="icon-btn">✕</button></div>
       <div class="intelligence-grid">
-        <article class="detail-card"><h3>Threat Prediction</h3><p>Transparent trend projection with uncertainty.</p><textarea id="predictionValues" rows="3">22,28,31,39,45</textarea><div class="action-row"><button id="runPrediction" class="small-primary">Project Series</button><button id="runLocationPrediction" class="small-secondary">Use Selected Forest</button></div><pre id="predictionResult" class="mini-output">—</pre></article>
+        <article class="detail-card"><h3>Threat Prediction</h3><p>Transparent trend projection with uncertainty.</p><p class="mini-note">Project Series uses your entered values. Use Selected Forest uses the date range selected in Forest Time Machine.</p><textarea id="predictionValues" rows="3" placeholder="Enter your measured series, separated by commas"></textarea><div class="action-row"><button id="runPrediction" class="small-primary">Project Series</button><button id="runLocationPrediction" class="small-secondary">Use Selected Forest</button></div><pre id="predictionResult" class="mini-output">—</pre></article>
         <article class="detail-card"><h3>What-If Simulator</h3><div class="compact-fields"><label>Temperature Δ °C<input id="whatTemp" type="number" step="0.1" value="1"></label><label>Rainfall deficit Δ %<input id="whatRain" type="number" step="1" value="15"></label><label>Fire Δ 0–1<input id="whatFire" type="number" step="0.1" min="0" max="1" value="0.2"></label></div><button id="runWhatIf" class="full-primary">Simulate Scenario</button><pre id="whatIfResult" class="mini-output">—</pre></article>
       </div>
     </div>
@@ -244,7 +246,7 @@
     <div class="modal-card patrol-modal-card">
       <div class="drawer-head"><div><small>ACTION ENGINE</small><h2>Patrol Optimizer</h2></div><button id="closePatrol" class="icon-btn">✕</button></div>
       <p class="mini-note">Add coordinates as <code>lat,lon,priority</code>, one per line. VanRakshak orders targets and requests a real OSRM road route when available.</p>
-      <textarea id="patrolPoints" rows="8"></textarea><button id="runPatrol" class="full-primary">Optimize Patrol Route</button><pre id="patrolResult" class="mini-output">—</pre>
+      <textarea id="patrolPoints" rows="8"></textarea><button id="runPatrol" class="full-primary">Optimize Entered Stops</button><button id="runDetectedPatrol" class="full-secondary">Use Detected Change Polygons</button><pre id="patrolResult" class="mini-output">—</pre>
     </div>
   </div>
 
@@ -259,6 +261,10 @@
   <div id="toast" class="toast hidden"></div>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
   <script src="https://unpkg.com/maplibre-gl@5.6.2/dist/maplibre-gl.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/map-runtime.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
+

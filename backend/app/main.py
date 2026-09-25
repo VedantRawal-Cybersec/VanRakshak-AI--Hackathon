@@ -40,7 +40,7 @@ from app.services.tiles import satellite_layer, compare_layers, gfw_layer
 from app.services.remote_change import analyze as remote_change_analyze, RemoteChangeError, scene_summary, recovery_from_series
 from app.services.sar_change import analyze as sar_change_analyze, SARChangeError
 from app.services.evidence import build_chain, partial_risk, pressure_context
-from app.services.model_runtime import status as change_model_status
+from app.services.model_runtime import status as change_model_status, supervised_benchmark
 from app.services.feature_status import FEATURE_CAPABILITIES
 from app.services.source_health import snapshot as source_health_snapshot
 from app.services.alerts import compose_patrol_alert
@@ -1689,11 +1689,7 @@ async def evidence_chain_ep(
             "sentinel1_valid_pixels":(sar_change or {}).get("valid_pixels") if sar_change else None,
             "note":"Sentinel-1 is an independent sensor corroboration check. Agreement/disagreement is evidence consistency, not classification accuracy or ground truth.",
         },
-        "ground_truth_classification_metrics":{
-            "available":False,
-            "precision":None,"recall":None,"f1":None,"iou":None,
-            "note":"No labelled geographic ground-truth benchmark is configured, so VanRakshak does not invent Precision/Recall/F1/IoU.",
-        },
+        "ground_truth_classification_metrics":supervised_benchmark(),
         "data_integrity_rule":"Quality metrics are computed only from real source observations or transparent derived comparisons. Missing validation evidence remains unavailable.",
     }
 

@@ -34,8 +34,8 @@ function pct(v,digits=0){if(v==null||Number.isNaN(Number(v)))return '—';const 
 function fmt(v,d=1){return v==null||!Number.isFinite(Number(v))?'—':Number(v).toFixed(d)}
 function setText(id,val){const el=$(id);if(el)el.textContent=val}
 function showTab(name){
-  $('.right-tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  $('.right-panel-view').forEach(x=>x.classList.toggle('active',x.id===`tab-${name}`));
+  $$('.right-tab').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
+  $$('.right-panel-view').forEach(x=>x.classList.toggle('active',x.id===`tab-${name}`));
   const inspector=$('inspector');if(inspector)inspector.scrollTo({top:0,behavior:'auto'});
   requestAnimationFrame(()=>{[state.panelBefore,state.panelAfter].forEach(m=>{try{m?.resize()}catch{}});state.trendChart?.resize()});
 }

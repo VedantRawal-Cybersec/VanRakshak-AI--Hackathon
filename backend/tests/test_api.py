@@ -35,6 +35,37 @@ def test_gibs_catalog_and_tile_spec():
     assert t.status_code==200
     assert '/wmts/epsg3857/best/' in t.json()['tile_url']
 
+def test_optional_earth_engine_rasters_return_public_fallbacks(monkeypatch):
+    from app import main
+    from app.adapters.base import AdapterError
+
+    def unavailable(*args,**kwargs):
+        raise AdapterError("Earth Engine intentionally unavailable in fallback test")
+
+    monkeypatch.setattr(main.ee,"tile",unavailable)
+
+    burned=client.get('/api/earth-engine/layer/modis_burned_area',params={'lat':12.3375,'lon':75.8069})
+    assert burned.status_code==200
+    b=burned.json()
+    assert b['fallback_used'] is True
+    assert b['tile_url']
+    assert 'fire' in b['source'].lower()
+    assert 'not MODIS MCD64A1' in b['fallback_semantics']
+
+    lst=client.get('/api/earth-engine/layer/modis_lst',params={'lat':12.3375,'lon':75.8069})
+    assert lst.status_code==200
+    l=lst.json()
+    assert l['fallback_used'] is True
+    assert l['source']=='NASA Earthdata GIBS'
+    assert '{bbox-epsg-3857}' in l['tile_url']
+
+    water=client.get('/api/earth-engine/layer/jrc_water_occurrence',params={'lat':12.3375,'lon':75.8069})
+    assert water.status_code==200
+    w=water.json()
+    assert w['fallback_used'] is True
+    assert 'OPERA' in w['fallback_semantics']
+
+
 def test_feature_status_all_37_have_runtime_status():
     r=client.get('/api/features/status')
     assert r.status_code==200

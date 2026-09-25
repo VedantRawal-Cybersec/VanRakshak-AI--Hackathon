@@ -206,3 +206,37 @@ def test_live_patrol_no_hotspots_is_valid_analysis(monkeypatch):
     assert data["status"]=="NO_PATROL_TARGETS"
     assert data["ordering"]["route"]==[]
     assert data["route_summary"]["stops"]==0
+
+
+def test_predict_location_returns_operational_forecast_intelligence(monkeypatch):
+    from app import main
+
+    async def fake_series(*args, **kwargs):
+        return {
+            "observations": [
+                {"datetime":"2026-01-01T05:00:00Z","mean_ndvi":0.72,"forest_fraction":0.82,"cloud_masked_fraction":0.08,"id":"S1"},
+                {"datetime":"2026-02-01T05:00:00Z","mean_ndvi":0.69,"forest_fraction":0.80,"cloud_masked_fraction":0.10,"id":"S2"},
+                {"datetime":"2026-03-01T05:00:00Z","mean_ndvi":0.61,"forest_fraction":0.74,"cloud_masked_fraction":0.07,"id":"S3"},
+                {"datetime":"2026-04-01T05:00:00Z","mean_ndvi":0.54,"forest_fraction":0.67,"cloud_masked_fraction":0.09,"id":"S4"},
+            ],
+            "errors": [],
+            "source": "Sentinel-2 test series",
+        }
+
+    monkeypatch.setattr(main, "vegetation_series_ep", fake_series)
+    r=client.get("/api/intelligence/predict-location", params={
+        "lat":12.3375,
+        "lon":75.8069,
+        "start":"2026-01-01",
+        "end":"2026-04-30",
+        "max_observations":12,
+    })
+    assert r.status_code==200
+    data=r.json()
+    fi=data["forecast_intelligence"]
+    assert fi["what_is_happening"]
+    assert len(fi["why_model_is_flagging_it"]) >= 4
+    assert len(fi["recommended_actions"]) >= 3
+    assert len(fi["expected_impacts"]) >= 4
+    assert "probability" in fi["uncertainty"]["note"].lower()
+    assert "cause" in fi["causation_note"].lower()

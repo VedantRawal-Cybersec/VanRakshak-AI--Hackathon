@@ -100,8 +100,12 @@ async def historical_landsat_smoke(usgs,gcp):
     from datetime import datetime, timezone
     target=datetime(1987,6,1,tzinfo=timezone.utc)
     item=await usgs.closest_scene(LAT,LON,target,90,100,550)
+    catalog="USGS Landsat STAC"
     if not item:
-        raise RuntimeError("USGS Landsat STAC found no real observation within 550 days of 1987-06-01")
+        item=await gcp.closest_scene(LAT,LON,target,90,100,550)
+        catalog="Google Cloud public Landsat Collection 1"
+    if not item:
+        raise RuntimeError("No real Landsat observation was discoverable within 550 days of 1987-06-01")
     product=await gcp.resolve_item(item)
     if not product:
         raise RuntimeError(f"Google public Landsat mirror has no Collection-1 raster matching {item.get('id')}")
@@ -125,6 +129,7 @@ async def historical_landsat_smoke(usgs,gcp):
         "ok":True,
         "item_id":item.get("id"),
         "product_id":product,
+        "catalog":catalog,
         "datetime":props.get("datetime"),
         "date_offset_days":archive.get("date_offset_days"),
         "calibration_keys":calibration_keys[:8],

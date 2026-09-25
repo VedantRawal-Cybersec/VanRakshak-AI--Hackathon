@@ -147,8 +147,9 @@
 
           <div class="impact-strip">
             <article><span>🌿</span><div><small>Carbon Impact <b>(Estimated)</b></small><strong id="carbonImpact">—</strong><em id="carbonImpactSub">tCO₂e</em></div></article>
-            <article><span>🛡</span><div><small>Protected Area</small><strong id="protectedStatus">—</strong><em id="protectedSub">Protected Planet / WDPA</em></div></article>
-            <article><span>⌘</span><div><small>Fragmentation</small><strong id="fragmentationStatus">—</strong><em id="fragmentationSub">Patch change</em></div></article>
+            <article><span>🛡</span><div><small>Protected Area</small><strong id="protectedStatus">—</strong><em id="protectedSub">Protected-area context</em></div></article>
+            <article><span>🌱</span><div><small>Vegetation Condition</small><strong id="vegetationStatus">—</strong><em id="vegetationSub">NDVI / Sentinel-2</em></div></article>
+            <article><span>⌘</span><div><small>Fragmentation</small><strong id="fragmentationStatus">—</strong><em id="fragmentationSub">Patch / edge change</em></div></article>
           </div>
 
           <article class="detail-card action-plan-card">
@@ -283,7 +284,14 @@
     <div class="modal-card alert-modal-card">
       <div class="drawer-head"><div><small>FIELD RESPONSE</small><h2>Patrol Alert Center</h2></div><button id="closeAlert" class="icon-btn">✕</button></div>
       <p class="mini-note">Creates a source-backed field brief from the selected forest and comparison dates. “Probable drivers” are hypotheses for patrol verification, not confirmed causes.</p>
-      <div id="alertStatus" class="progress-banner">Open Alerts to generate a patrol brief.</div>
+      <div id="alertStatus" class="progress-banner">Open Alerts to analyze the selected forest.</div>
+      <article class="detail-card alert-queue-card">
+        <div class="section-head"><div><h3>All Active Alerts for Selected Area</h3><p class="mini-note">Source-backed alert queue ordered from urgent field issues to contextual ecological impacts.</p></div><span id="alertCount" class="action-risk">0 alerts</span></div>
+        <div id="alertQueue" class="alert-queue"><div class="empty-state">Analyzing forest change, vegetation, fire, climate, fragmentation, protected-area and human-pressure signals…</div></div>
+      </article>
+      <div id="alertSelectedPlan" class="alert-selected-plan">
+        <div class="empty-state">Select an alert to view what is happening, when it was observed, the evidence, VanRakshak response plan and expected impact.</div>
+      </div>
       <div id="alertMetrics" class="prediction-summary"></div>
       <div class="alert-context-grid">
         <article class="detail-card"><h3>Where / What / When</h3><div id="alertContext" class="alert-context"><div class="empty-state">Generating incident context…</div></div></article>

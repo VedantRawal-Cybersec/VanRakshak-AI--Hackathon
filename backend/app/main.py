@@ -1581,6 +1581,7 @@ async def live_intelligence_ep(
         "cascade":live_cascade,
         "resilience":live_resilience,
         "interventions":{"recommendations":live_interventions,"label":"AI_ESTIMATE"},
+        "action_plan":bundle.get("action_plan"),
         "forest_doctor":bundle.get("forest_doctor"),
         "anomaly_radar":anomaly_radar(signals),
         "carbon":bundle.get("carbon"),

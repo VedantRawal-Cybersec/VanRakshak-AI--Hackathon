@@ -151,6 +151,12 @@
             <article><span>⌘</span><div><small>Fragmentation</small><strong id="fragmentationStatus">—</strong><em id="fragmentationSub">Patch change</em></div></article>
           </div>
 
+          <article class="detail-card action-plan-card">
+            <div class="action-plan-head"><div><h3>Recommended Response Plan</h3><p>What to do, where to act, how to respond, and how to verify impact.</p></div><span id="actionPlanRisk" class="action-risk">Waiting for analysis</span></div>
+            <div id="actionPlanOverview" class="action-plan-list"><div class="empty-state">Run source-backed analysis to generate operational actions.</div></div>
+            <div id="actionPlanOutcome" class="action-plan-outcome">Expected impact will be shown as measurable validation targets, not guaranteed percentages.</div>
+          </article>
+
           <div class="action-row major-actions">
             <button id="reportBtn" class="action-btn green">▤ Generate Full Report</button>
             <button id="viewOnMapBtn" class="action-btn blue">● View on Map</button>
@@ -180,11 +186,12 @@
           <button id="runEvidenceAnalysis" class="full-primary">Run Source-Backed Analysis</button>
           <div class="analysis-grid"><article><h3>Warning</h3><div id="analysisWarning" class="big-status">—</div></article><article><h3>Coverage</h3><div id="analysisCoverage" class="big-status">—</div></article></div>
           <article class="detail-card"><h3>Evidence Chain</h3><div id="evidenceChain" class="evidence-list">No evidence loaded.</div></article>
+          <article class="detail-card"><div class="action-plan-head"><div><h3>Response Actions & Expected Impact</h3><p>Evidence-linked field actions with location, method, timing and success checks.</p></div></div><div id="actionPlanAnalysis" class="action-plan-list"><div class="empty-state">Run analysis to generate the action plan.</div></div></article>
           <article class="detail-card"><h3>Forest Digital Profile</h3><div id="profilePanel">No profile loaded.</div></article>
         </section>
 
         <section id="tab-environment" class="right-panel-view">
-          <div class="panel-section-head"><div><h2>Environmental Intelligence</h2><p>Weather, drought, soil, terrain, fire and Earth Engine context.</p></div></div>
+          <div class="panel-section-head"><div><h2>Environmental Intelligence</h2><p>Selected-area weather, soil chemistry/texture, terrain, fire, conservation and satellite context with source timestamps.</p></div><span id="environmentUpdated" class="data-freshness">Waiting for location</span></div>
           <div id="environmentPanel" class="environment-grid"><div class="empty-state">Select a location to load environmental data.</div></div>
           <button id="openLayerDrawerEnv" class="full-secondary">Open Environmental Layers</button>
         </section>

@@ -155,6 +155,7 @@
             <button id="reportBtn" class="action-btn green">▤ Generate Full Report</button>
             <button id="viewOnMapBtn" class="action-btn blue">● View on Map</button>
             <button id="patrolBtn" class="action-btn blue">⌁ Plan Patrol Route</button>
+            <button id="sendAlertBtn" class="action-btn alert-action">⚠ Send Patrol Alert</button>
           </div>
 
           <article class="live-sources" id="liveDataSection">
@@ -247,6 +248,38 @@
       <div class="drawer-head"><div><small>ACTION ENGINE</small><h2>Patrol Optimizer</h2></div><button id="closePatrol" class="icon-btn">✕</button></div>
       <p class="mini-note">Use detected change polygons for an evidence-backed route, or enter <code>lat,lon,priority</code> stops. VanRakshak uses OSRM road travel time when available and explains every stop.</p>
       <textarea id="patrolPoints" rows="5"></textarea><div class="action-row"><button id="runDetectedPatrol" class="small-primary">Build Route from Detected Hotspots</button><button id="runPatrol" class="small-secondary">Route Entered Stops</button></div><div id="patrolStatus" class="progress-banner">Ready to build a patrol route.</div><div id="patrolMetrics" class="prediction-summary"></div><div id="patrolStops" class="patrol-stops-list"></div><div id="patrolInstructions" class="route-instructions"></div><details class="raw-details"><summary>Technical route output</summary><pre id="patrolResult" class="mini-output">—</pre></details>
+    </div>
+  </div>
+
+  <div id="alertModal" class="modal hidden">
+    <div class="modal-card alert-modal-card">
+      <div class="drawer-head"><div><small>FIELD RESPONSE</small><h2>Patrol Alert Center</h2></div><button id="closeAlert" class="icon-btn">✕</button></div>
+      <p class="mini-note">Creates a source-backed field brief from the selected forest and comparison dates. “Probable drivers” are hypotheses for patrol verification, not confirmed causes.</p>
+      <div id="alertStatus" class="progress-banner">Open Alerts to generate a patrol brief.</div>
+      <div id="alertMetrics" class="prediction-summary"></div>
+      <div class="alert-context-grid">
+        <article class="detail-card"><h3>Where / What / When</h3><div id="alertContext" class="alert-context"><div class="empty-state">Generating incident context…</div></div></article>
+        <article class="detail-card"><h3>How It May Be Happening</h3><div id="alertDrivers" class="alert-drivers"><div class="empty-state">Waiting for evidence…</div></div></article>
+      </div>
+      <article class="detail-card alert-message-card">
+        <div class="section-head alert-message-head"><h3>Message to Patrol Team</h3><button id="refreshAlert" class="small-secondary">Regenerate from Evidence</button></div>
+        <textarea id="alertMessage" rows="18" aria-label="Patrol team alert message"></textarea>
+      </article>
+      <div class="alert-routing-row">
+        <button id="attachAlertPatrol" class="small-secondary">⌁ Build & Attach Patrol Route</button>
+        <span id="alertRouteStatus" class="mini-note">Route is optional; alert already includes the priority hotspot.</span>
+      </div>
+      <div class="alert-recipient-grid">
+        <label>Patrol WhatsApp <small>(country code + number)</small><input id="alertPhone" inputmode="tel" placeholder="e.g. 9198XXXXXXXX" /></label>
+        <label>Patrol Email <small>(optional)</small><input id="alertEmail" type="email" placeholder="patrol-team@example.org" /></label>
+      </div>
+      <div class="alert-send-grid">
+        <button id="shareAlert" class="full-primary">↗ Share / Send Alert</button>
+        <button id="whatsappAlert" class="full-secondary">WhatsApp Patrol Team</button>
+        <button id="emailAlert" class="full-secondary">Email Patrol Team</button>
+        <button id="copyAlert" class="full-secondary">Copy Message</button>
+      </div>
+      <div class="drawer-note">VanRakshak prepares the message and opens the selected communication channel. The operator reviews and confirms the final send in WhatsApp, email, or the device share sheet.</div>
     </div>
   </div>
 

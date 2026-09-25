@@ -132,7 +132,15 @@ class GCPLandsatAdapter(BaseAdapter):
                 products.add(parts[4])
         return sorted(products)
 
-    async def _discover_products(self,lat: float,lon: float,target: datetime,max_window_days: int) -> list[tuple[float,str]]:
+    async def _discover_products(
+        self,
+        lat: float,
+        lon: float,
+        target: datetime,
+        max_window_days: int,
+        *,
+        broad: bool=False,
+    ) -> list[tuple[float,str]]:
         paths=self.wrs2_candidates(lat,lon)
         if not paths:
             return []
@@ -166,35 +174,36 @@ class GCPLandsatAdapter(BaseAdapter):
                         rows.append((delta,product))
             return sorted(rows,key=lambda row:(row[0],0 if row[1].endswith("_T1") else 1,row[1]))
 
-        # Fast path: primary mission, centre/cross WRS neighbours and the three
-        # closest calendar years. This is enough for the verified Kodagu 1988
-        # overlap and avoids a burst of dozens of public-bucket list requests.
-        # Include diagonal WRS overlaps as well: a point can fall outside the
-        # nearest cross-neighbour scene but inside its diagonal overlap.
-        fast_paths=paths
-        fast_years=years[:3]
+        # Phase 1 is deliberately compact but complete for the primary mission:
+        # all WRS overlap cells and every calendar year touched by the requested
+        # date window. Finding a nearby product is not sufficient by itself;
+        # closest_scene verifies point coverage before it can be accepted.
+        primary=missions[:1]
         batches=await asyncio.gather(*(
-            fetch(missions[0],path,row,year,"L1TP")
-            for path,row in fast_paths
-            for year in fast_years
+            fetch(mission,path,row,year,"L1TP")
+            for mission in primary
+            for path,row in paths
+            for year in years
         ))
         products=normalize(batches)
-        if products:
+        if products and not broad:
             return products
 
-        # Broaden only if the compact lookup was empty: all overlap neighbours,
-        # complete date window, alternate mission, then less precise products.
-        for level in ("L1TP","L1GT","L1GS"):
+        if broad:
+            # Phase 2 runs only after phase-1 products were spatially rejected.
+            # Include alternate Landsat missions and lower processing tiers so a
+            # non-covering neighbouring frame cannot prematurely terminate the
+            # historical search.
             batches=await asyncio.gather(*(
                 fetch(mission,path,row,year,level)
                 for mission in missions
                 for path,row in paths
                 for year in years
+                for level in ("L1TP","L1GT","L1GS")
             ))
-            products=normalize(batches)
-            if products:
-                return products
-        return []
+            return normalize(batches)
+
+        return products
 
     async def closest_scene(
         self,
@@ -206,45 +215,56 @@ class GCPLandsatAdapter(BaseAdapter):
         max_window_days: int=550,
     ) -> dict | None:
         target=target_date.astimezone(timezone.utc)
-        products=await self._discover_products(lat,lon,target,max_window_days)
-        if not products:
+        seen=set()
+
+        async def verify(products):
+            # Metadata is the authority for both point coverage and scene cloud.
+            # Keep the bounded shortlist so this never downloads raster imagery
+            # merely to decide whether a scene is eligible.
+            for delta,product in products[:80]:
+                if product in seen:
+                    continue
+                seen.add(product)
+                try:
+                    metadata_text=await self.metadata(product)
+                except AdapterError:
+                    continue
+                meta=self._metadata_summary(metadata_text)
+                cloud=meta.get("cloud_cover")
+                if cloud is not None and cloud>float(cloud_lt):
+                    continue
+                if not self._contains(meta.get("bbox"),lat,lon):
+                    continue
+                mission,path,row,acquired=self._product_parts(product)
+                observed=datetime.strptime(acquired,"%Y%m%d").replace(tzinfo=timezone.utc)
+                return {
+                    "type":"Feature",
+                    "id":product,
+                    "collection":"gcp-public-data-landsat-c1",
+                    "bbox":meta.get("bbox"),
+                    "properties":{
+                        "datetime":observed.isoformat().replace("+00:00","Z"),
+                        "eo:cloud_cover":cloud,
+                        "platform":mission,
+                    },
+                    "_gcp_product_id":product,
+                    "_vanrakshak_catalog_source":"Google Cloud public Landsat Collection 1",
+                    "_vanrakshak_archive":{
+                        "requested_date":target.date().isoformat(),
+                        "window_used_days":max(int(window_days),int(math.ceil(delta))),
+                        "date_offset_days":round(delta,1),
+                        "cloud_filter":float(cloud_lt),
+                    },
+                }
             return None
 
-        # Check closest products first. Metadata verifies both point coverage
-        # and cloud threshold before a scene can be returned.
-        for delta,product in products[:40]:
-            try:
-                metadata_text=await self.metadata(product)
-            except AdapterError:
-                continue
-            meta=self._metadata_summary(metadata_text)
-            cloud=meta.get("cloud_cover")
-            if cloud is not None and cloud>float(cloud_lt):
-                continue
-            if not self._contains(meta.get("bbox"),lat,lon):
-                continue
-            mission,path,row,acquired=self._product_parts(product)
-            observed=datetime.strptime(acquired,"%Y%m%d").replace(tzinfo=timezone.utc)
-            return {
-                "type":"Feature",
-                "id":product,
-                "collection":"gcp-public-data-landsat-c1",
-                "bbox":meta.get("bbox"),
-                "properties":{
-                    "datetime":observed.isoformat().replace("+00:00","Z"),
-                    "eo:cloud_cover":cloud,
-                    "platform":mission,
-                },
-                "_gcp_product_id":product,
-                "_vanrakshak_catalog_source":"Google Cloud public Landsat Collection 1",
-                "_vanrakshak_archive":{
-                    "requested_date":target.date().isoformat(),
-                    "window_used_days":max(int(window_days),int(math.ceil(delta))),
-                    "date_offset_days":round(delta,1),
-                    "cloud_filter":float(cloud_lt),
-                },
-            }
-        return None
+        fast=await self._discover_products(lat,lon,target,max_window_days,broad=False)
+        item=await verify(fast)
+        if item:
+            return item
+
+        broad=await self._discover_products(lat,lon,target,max_window_days,broad=True)
+        return await verify(broad)
 
     async def resolve_item(self,item: dict) -> str | None:
         direct=item.get("_gcp_product_id")

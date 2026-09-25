@@ -1,5 +1,5 @@
 import asyncio
-from app.services.source_health import snapshot
+from app.services.source_health import snapshot, _probe
 
 
 class A:
@@ -20,3 +20,16 @@ def test_source_health_public_providers():
     public=[x for x in out["sources"] if x["source"] in {"Copernicus STAC","Earth Search","Open-Meteo","SoilGrids","Nominatim","Sentinel-1 ASF"}]
     assert all(x["ok"] for x in public)
     assert out["healthy_sources"] >= 6
+
+
+class Slow:
+    async def current(self):
+        await asyncio.sleep(.05)
+        return {"current": {}}
+
+
+def test_source_health_probe_timeout_is_bounded():
+    out=asyncio.run(_probe("Slow provider",Slow().current(),timeout_s=.01))
+    assert out["status"]=="TIMEOUT"
+    assert out["ok"] is False
+    assert out["latency_ms"] < 100

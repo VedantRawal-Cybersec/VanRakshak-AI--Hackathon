@@ -5,6 +5,12 @@ client=TestClient(app)
 def test_health():
     r=client.get('/api/health'); assert r.status_code==200 and r.json()['ok'] is True
 
+
+def test_health_head_and_favicon_routes_are_browser_clean():
+    assert client.head('/api/health').status_code == 200
+    fav=client.get('/favicon.ico')
+    assert fav.status_code in {200,204}
+
 def test_layers():
     r=client.get('/api/layers'); assert r.status_code==200 and len(r.json()['groups'])>=10
 

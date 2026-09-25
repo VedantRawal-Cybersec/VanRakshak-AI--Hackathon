@@ -206,31 +206,50 @@ async def climate_history_source(lat: float, lon: float, start: str, end: str):
 
 
 async def news_source_result(place: str, timespan: str = "1week"):
+    async def attempt(label: str, url: str, coro):
+        try:
+            return True,label,url,await coro,None
+        except Exception as exc:
+            return False,label,url,None,str(exc)
+
+    tasks={
+        asyncio.create_task(attempt("GDELT DOC 2.0",gdelt.source_url,gdelt.forest_news(place,timespan))),
+        asyncio.create_task(attempt("Google News RSS",gnews.source_url,gnews.forest_news(place,timespan))),
+    }
     errors=[]
+    pending=set(tasks)
     try:
-        data=await gdelt.forest_news(place,timespan)
-        return SourceResult(
-            ok=True,data=data,
-            provenance=prov("GDELT DOC 2.0","DYNAMIC_RECENT",gdelt.source_url),
-        )
-    except Exception as exc:
-        errors.append(f"GDELT: {exc}")
-    try:
-        data=await gnews.forest_news(place,timespan)
-        return SourceResult(
-            ok=True,data=data,
-            provenance=prov(
-                "Google News RSS","DYNAMIC_RECENT",gnews.source_url,
-                notes="GDELT unavailable; public RSS metadata fallback used. "+"; ".join(errors),
-            ),
-        )
-    except Exception as exc:
-        errors.append(f"Google News RSS: {exc}")
+        async with asyncio.timeout(6.0):
+            while pending:
+                done,pending=await asyncio.wait(pending,return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    ok,label,url,data,error=await task
+                    if ok:
+                        for p in pending:
+                            p.cancel()
+                        if pending:
+                            await asyncio.gather(*pending,return_exceptions=True)
+                        notes=None
+                        if label!="GDELT DOC 2.0":
+                            notes="Fastest responsive real news provider selected; GDELT remains available when responsive."
+                        return SourceResult(
+                            ok=True,data=data,
+                            provenance=prov(label,"DYNAMIC_RECENT",url,notes=notes),
+                        )
+                    errors.append(f"{label}: {error}")
+    except TimeoutError:
+        errors.append("News providers exceeded 6 second response budget")
+    finally:
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending,return_exceptions=True)
+
     return SourceResult(
         ok=False,data=None,error="; ".join(errors),
         provenance=prov(
             "Forest news intelligence","UNKNOWN",gdelt.source_url,
-            notes="No news provider was available; no headlines were fabricated.",
+            notes="No news provider responded within the bounded request budget; no headlines were fabricated.",
         ),
     )
 
@@ -277,23 +296,45 @@ async def reverse_source_result(lat: float, lon: float):
 
 async def investigation_sources(lat: float, lon: float, place: str):
     key=f"investigation:{round(lat,4)}:{round(lon,4)}:{place.lower().strip()[:80]}"
+
+    async def bounded(coro, source: str, freshness: str, url: str, timeout_s: float):
+        try:
+            return await asyncio.wait_for(coro,timeout=timeout_s)
+        except TimeoutError:
+            return SourceResult(
+                ok=False,data=None,error=f"{source} exceeded {timeout_s:g}s investigation response budget",
+                provenance=prov(
+                    source,freshness,url,
+                    notes="Provider was bounded so one slow upstream cannot block the full investigation dashboard.",
+                ),
+            )
+        except Exception as exc:
+            return SourceResult(
+                ok=False,data=None,error=str(exc),
+                provenance=prov(source,freshness,url,notes="Provider failed during bounded investigation collection."),
+            )
+
     async def produce():
-        tasks = {
-            "weather": weather_source_result(lat,lon),
-            "satellite": wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", copernicus.source_url, 10),
-            "earth_search": wrap("Earth Search Sentinel-2 L2A", earth.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", earth.source_url, 10),
-            "planetary_computer": wrap("Planetary Computer Sentinel-2 L2A", pc.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", pc.source_url, 10),
-            "sentinel1": wrap("ASF Sentinel-1 Search", s1.latest(lat, lon), "DYNAMIC_RECENT", s1.source_url, 10),
-            "soil": wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250),
-            "human_pressure": wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon), "DYNAMIC_RECENT", overpass.source_url),
-            "fire": fire_source_result(lat, lon, 1),
-            "natural_events": wrap("NASA EONET", eonet.events(lat, lon, days=30, radius_deg=3, limit=50), "DYNAMIC_RECENT", eonet.source_url),
-            "protected_area": protected_source_result(lat, lon),
-            "news": news_source_result(place),
-            "reverse_geocode": reverse_source_result(lat, lon),
+        specs = {
+            "weather": (weather_source_result(lat,lon),"Weather intelligence","FORECAST",weather.source_url,8.0),
+            "satellite": (wrap("Copernicus Sentinel-2 L2A STAC", copernicus.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", copernicus.source_url, 10),"Copernicus Sentinel-2 L2A STAC","DYNAMIC_RECENT",copernicus.source_url,8.0),
+            "earth_search": (wrap("Earth Search Sentinel-2 L2A", earth.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", earth.source_url, 10),"Earth Search Sentinel-2 L2A","DYNAMIC_RECENT",earth.source_url,8.0),
+            "planetary_computer": (wrap("Planetary Computer Sentinel-2 L2A", pc.latest_sentinel2(lat, lon), "DYNAMIC_RECENT", pc.source_url, 10),"Planetary Computer Sentinel-2 L2A","DYNAMIC_RECENT",pc.source_url,8.0),
+            "sentinel1": (wrap("ASF Sentinel-1 Search", s1.latest(lat, lon), "DYNAMIC_RECENT", s1.source_url, 10),"ASF Sentinel-1 Search","DYNAMIC_RECENT",s1.source_url,8.0),
+            "soil": (wrap("SoilGrids", soil.point(lat, lon), "REFERENCE", soil.source_url, 250),"SoilGrids","REFERENCE",soil.source_url,8.0),
+            "human_pressure": (wrap("OpenStreetMap / Overpass", overpass.pressure(lat, lon), "DYNAMIC_RECENT", overpass.source_url),"OpenStreetMap / Overpass","DYNAMIC_RECENT",overpass.source_url,8.0),
+            "fire": (fire_source_result(lat, lon, 1),"NASA fire intelligence","DYNAMIC_RECENT",firms.source_url,8.0),
+            "natural_events": (wrap("NASA EONET", eonet.events(lat, lon, days=30, radius_deg=3, limit=50), "DYNAMIC_RECENT", eonet.source_url),"NASA EONET","DYNAMIC_RECENT",eonet.source_url,8.0),
+            "protected_area": (protected_source_result(lat, lon),"Protected-area intelligence","REFERENCE",pp.source_url,8.0),
+            "news": (news_source_result(place),"Forest news intelligence","DYNAMIC_RECENT",gdelt.source_url,7.0),
+            "reverse_geocode": (reverse_source_result(lat, lon),"OSM reverse geocoding","DYNAMIC_RECENT",geocoder.source_url,8.0),
         }
-        vals = await asyncio.gather(*tasks.values())
-        return dict(zip(tasks.keys(), [v.model_dump() for v in vals]))
+        vals=await asyncio.gather(*[
+            bounded(coro,source,freshness,url,timeout_s)
+            for coro,source,freshness,url,timeout_s in specs.values()
+        ])
+        return dict(zip(specs.keys(),[v.model_dump() for v in vals]))
+
     return await cached_async(key,settings.cache_ttl_s,produce)
 
 
@@ -330,6 +371,11 @@ async def health():
             "photon_geocoder": True,
         },
     }
+
+
+@app.head("/api/health", include_in_schema=False)
+async def health_head():
+    return Response(status_code=200)
 
 
 @app.get("/api/ready")
@@ -419,11 +465,14 @@ def demo_scenarios():
 
 @app.get("/api/source-health")
 async def source_health(lat: float = 12.9716, lon: float = 77.5946):
-    return await source_health_snapshot({
-        "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
-        "geocoder": geocoder, "photon": photon, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
-        "gibs": gibs, "eonet": eonet, "power": power, "pc": pc, "gnews": gnews, "metno": metno,
-    }, lat, lon)
+    key=f"source-health:{round(lat,3)}:{round(lon,3)}"
+    async def produce():
+        return await source_health_snapshot({
+            "copernicus": copernicus, "earth": earth, "weather": weather, "soil": soil,
+            "geocoder": geocoder, "photon": photon, "s1": s1, "firms": firms, "pp": pp, "ee": ee,
+            "gibs": gibs, "eonet": eonet, "power": power, "pc": pc, "gnews": gnews, "metno": metno,
+        }, lat, lon)
+    return await cached_async(key,60,produce)
 
 
 @app.get("/api/layers")
@@ -1516,6 +1565,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB = PROJECT_ROOT / "web"
 if not WEB.exists(): WEB = Path("/web")
 if WEB.exists(): app.mount("/static", StaticFiles(directory=str(WEB)), name="static")
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    p=WEB / "favicon.svg"
+    return FileResponse(str(p),media_type="image/svg+xml") if p.exists() else Response(status_code=204)
+
 
 @app.get("/")
 def root():

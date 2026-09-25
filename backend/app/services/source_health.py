@@ -7,7 +7,14 @@ from typing import Any, Awaitable
 from app.config import settings
 
 
-async def _probe(name: str, coro: Awaitable[Any] | None, *, configured: bool = True, note: str | None = None):
+async def _probe(
+    name: str,
+    coro: Awaitable[Any] | None,
+    *,
+    configured: bool = True,
+    note: str | None = None,
+    timeout_s: float = 5.0,
+):
     if not configured:
         close = getattr(coro, "close", None)
         if callable(close):
@@ -15,9 +22,18 @@ async def _probe(name: str, coro: Awaitable[Any] | None, *, configured: bool = T
         return {"source": name, "status": "NOT_CONFIGURED", "ok": False, "latency_ms": None, "detail": note}
     started = time.perf_counter()
     try:
-        data = await coro  # type: ignore[arg-type]
+        data = await asyncio.wait_for(coro,timeout=timeout_s)  # type: ignore[arg-type]
         latency = round((time.perf_counter() - started) * 1000, 1)
         return {"source": name, "status": "OK", "ok": True, "latency_ms": latency, "detail": None, "sample_available": data is not None}
+    except TimeoutError:
+        latency = round((time.perf_counter() - started) * 1000, 1)
+        return {
+            "source": name,
+            "status": "TIMEOUT",
+            "ok": False,
+            "latency_ms": latency,
+            "detail": f"Health probe exceeded {timeout_s:g}s response budget",
+        }
     except Exception as exc:
         latency = round((time.perf_counter() - started) * 1000, 1)
         return {"source": name, "status": "ERROR", "ok": False, "latency_ms": latency, "detail": str(exc)}

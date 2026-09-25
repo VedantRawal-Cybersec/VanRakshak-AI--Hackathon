@@ -1208,6 +1208,52 @@ async def predict_location_ep(
     forest_change=round(float(last["forest_fraction"])-float(first["forest_fraction"]),4)
     cloud_values=[float(x.get("cloud_masked_fraction")) for x in valid if x.get("cloud_masked_fraction") is not None]
     quality=max(0.0,min(100.0,100.0-(sum(cloud_values)/len(cloud_values)*100 if cloud_values else 0.0)))
+
+    backtest={
+        "available":False,
+        "method":"temporal holdout on the real Sentinel-derived screening-risk series",
+        "validation_class":"REAL_SENTINEL_TEMPORAL_HOLDOUT",
+        "note":"This evaluates forecast error on held-out observed screening-risk values. It is not ground-truth deforestation classification accuracy.",
+    }
+    if len(risk_values)>=6:
+        holdout=min(3,max(2,len(risk_values)//4))
+        train_values=risk_values[:-holdout]
+        train_dates=dates[:-holdout]
+        actual=risk_values[-holdout:]
+        try:
+            bt=predict_threat(ThreatPredictionRequest(values=train_values,dates=train_dates,steps=holdout,floor=0,ceiling=100))
+            predicted=(bt.get("projected_values") or [])[:holdout]
+            lower=(bt.get("lower") or [])[:holdout]
+            upper=(bt.get("upper") or [])[:holdout]
+            if len(predicted)==holdout:
+                errors=[float(predicted[i])-float(actual[i]) for i in range(holdout)]
+                abs_errors=[abs(e) for e in errors]
+                mae=sum(abs_errors)/holdout
+                rmse=math.sqrt(sum(e*e for e in errors)/holdout)
+                nonzero=[i for i,v in enumerate(actual) if abs(float(v))>1e-9]
+                mape=(sum(abs(errors[i]/float(actual[i])) for i in nonzero)/len(nonzero)*100) if nonzero else None
+                covered=sum(1 for i in range(holdout) if i<len(lower) and i<len(upper) and float(lower[i])<=float(actual[i])<=float(upper[i]))
+                backtest={
+                    "available":True,
+                    "method":"temporal holdout on the real Sentinel-derived screening-risk series",
+                    "validation_class":"REAL_SENTINEL_TEMPORAL_HOLDOUT",
+                    "training_observations":len(train_values),
+                    "holdout_observations":holdout,
+                    "holdout_dates":dates[-holdout:],
+                    "actual":[round(float(v),3) for v in actual],
+                    "predicted":[round(float(v),3) for v in predicted],
+                    "mae":round(mae,3),
+                    "rmse":round(rmse,3),
+                    "mape_pct":round(mape,2) if mape is not None else None,
+                    "interval_coverage_pct":round(covered/holdout*100,1),
+                    "model_disagreement":(bt.get("diagnostics") or {}).get("model_disagreement"),
+                    "note":"Backtest uses only earlier real Sentinel-derived observations to predict later held-out observations. It measures forecast quality of the screening index, not ground-truth deforestation classification accuracy.",
+                }
+        except Exception as exc:
+            backtest["reason"]=f"Backtest could not be computed: {exc}"
+    else:
+        backtest["reason"]="At least six usable Sentinel observations are required for a meaningful temporal holdout backtest."
+
     p=projection.get("analysis") or {}
     interpretation="Observed vegetation/forest decline is producing a rising screening-risk trend." if p.get("direction")=="INCREASING" else "The derived screening-risk trend is easing over the selected observation period." if p.get("direction")=="DECREASING" else "The derived screening-risk trend is broadly stable over the selected observation period."
     projected_values=projection.get("projected_values") or []
@@ -1310,6 +1356,7 @@ async def predict_location_ep(
             "confidence_pct":p.get("confidence_pct"),
             "forecast_change":forecast_change,
             "final_interval":{"lower":final_lower,"upper":final_upper},
+            "backtest":backtest,
             "note":"Confidence describes model fit, observation volume, stability and model agreement. It is not the probability that deforestation will occur.",
         },
         "verification_next":[
@@ -1320,7 +1367,7 @@ async def predict_location_ep(
         "causation_note":"The reasons above explain why the model is flagging the trend. They do not prove the real-world cause of the forest change. Probable drivers require evidence-chain and field verification.",
     }
 
-    return {"location":{"lat":lat,"lon":lon},"period":{"start":start,"end":end},"historical_risk_proxy":risk_values,"dates":dates,"projection":projection,"analysis":{"interpretation":interpretation,"ndvi_change_first_to_latest":ndvi_change,"forest_fraction_change_first_to_latest":forest_change,"latest_observation":dates[-1],"observation_count":len(valid),"scene_read_errors":len(series.get("errors") or []),"optical_quality_pct":round(quality,1),"baseline_mean_ndvi":round(base_nd,4),"baseline_forest_fraction":round(base_fc,4),"current_risk_index":risk_values[-1],"projected_risk_index":final_projection,"model_confidence_pct":p.get("confidence_pct")},"forecast_intelligence":forecast_intelligence,"components":components,"source_series":valid,"source":series.get("source"),"pipeline":["Search real Sentinel-2 L2A scenes in the selected period","Read red/NIR pixels and mask cloud/shadow/snow using SCL","Compute mean NDVI and forest fraction for each observation","Convert decline from the early-period baseline into a 0-100 screening-risk index","Run robust ensemble trend forecasting and uncertainty analysis"],"generated_at":datetime.now(timezone.utc).isoformat(),"label":"AI_ESTIMATE","warning":"Risk index is a transparent screening indicator derived from optical vegetation/forest-fraction decline. It is not a probability of illegal deforestation and should be checked against seasonality, radar and field evidence."}
+    return {"location":{"lat":lat,"lon":lon},"period":{"start":start,"end":end},"historical_risk_proxy":risk_values,"dates":dates,"projection":projection,"analysis":{"interpretation":interpretation,"ndvi_change_first_to_latest":ndvi_change,"forest_fraction_change_first_to_latest":forest_change,"latest_observation":dates[-1],"observation_count":len(valid),"scene_read_errors":len(series.get("errors") or []),"optical_quality_pct":round(quality,1),"baseline_mean_ndvi":round(base_nd,4),"baseline_forest_fraction":round(base_fc,4),"current_risk_index":risk_values[-1],"projected_risk_index":final_projection,"model_confidence_pct":p.get("confidence_pct"),"temporal_backtest":backtest},"forecast_intelligence":forecast_intelligence,"components":components,"source_series":valid,"source":series.get("source"),"pipeline":["Search real Sentinel-2 L2A scenes in the selected period","Read red/NIR pixels and mask cloud/shadow/snow using SCL","Compute mean NDVI and forest fraction for each observation","Convert decline from the early-period baseline into a 0-100 screening-risk index","Run robust ensemble trend forecasting and uncertainty analysis"],"generated_at":datetime.now(timezone.utc).isoformat(),"label":"AI_ESTIMATE","warning":"Risk index is a transparent screening indicator derived from optical vegetation/forest-fraction decline. It is not a probability of illegal deforestation and should be checked against seasonality, radar and field evidence."}
 
 
 @app.post("/api/intelligence/forest-doctor")

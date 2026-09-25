@@ -59,3 +59,24 @@ test('real public data path returns for Kodagu', async ({ request }) => {
   const s=await sat.json();
   expect(s.ok).toBeTruthy();
 });
+
+
+test('overview, analysis and environmental panels expose operational detail', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#actionPlanOverview')).toHaveCount(1);
+  await expect(page.locator('#actionPlanAnalysis')).toHaveCount(1);
+  await expect(page.locator('#environmentUpdated')).toHaveCount(1);
+
+  await page.locator('[data-tab="environment"]').click();
+  await expect(page.locator('#tab-environment')).toBeVisible();
+  await expect(page.locator('#environmentPanel')).toBeVisible();
+
+  await page.locator('[data-tab="analysis"]').click();
+  await expect(page.locator('#tab-analysis')).toBeVisible();
+
+  await page.locator('[data-tab="overview"]').click();
+  await expect(page.locator('#tab-overview')).toBeVisible();
+
+  const overflow=await page.locator('#inspector').evaluate(el => getComputedStyle(el).overflowY);
+  expect(['auto','scroll']).toContain(overflow);
+});

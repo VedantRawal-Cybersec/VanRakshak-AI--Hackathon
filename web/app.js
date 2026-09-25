@@ -226,6 +226,7 @@ function envCard(label,value,unit='',meta='',wide=false,decimals=1){
 function renderEnvironment(inv,profile){
   const sources=inv?.sources||{},weather=sources.weather||{},weatherData=weather.ok?weather.data||{}:{},cur=weatherData.current||{},units=weatherData.current_units||{};
   const p=profile||{},e=p.environment||{},t=p.terrain||{},soil=sources.soil||p.soil||{},fire=sources.fire||{},human=p.human_pressure||{},forest=p.forest||{},sat=p.satellite||{},conservation=p.conservation||{};
+  const climate=state.evidence?.climate||{};
   const observed=cur.time||weather.provenance?.observed_at||weather.provenance?.fetched_at||null;
   const hourlyFields={
     precipProb:nearestHourlyMetric(weatherData,'precipitation_probability'),
@@ -253,6 +254,14 @@ function renderEnvironment(inv,profile){
   sections.push(envCard('Surface soil moisture 0–1 cm',hourlyFields.soil0.value,hourlyFields.soil0.unit,hourlyFields.soil0.time||'Nearest forecast hour',false,3));
   sections.push(envCard('Soil moisture 1–3 cm',hourlyFields.soil1.value,hourlyFields.soil1.unit,hourlyFields.soil1.time||'Nearest forecast hour',false,3));
   sections.push(envCard('Reference evapotranspiration ET₀',hourlyFields.et0.value,hourlyFields.et0.unit,hourlyFields.et0.time||'Nearest forecast hour',false,2));
+
+  sections.push('<div class="env-section-title">Climate Stress • Recent Window vs Historical Baseline</div>');
+  sections.push(envCard('Temperature anomaly',climate.temperature_anomaly_c,'°C',climate.window?`${climate.window.start} → ${climate.window.end}`:'Runs with source-backed analysis',false,2));
+  sections.push(envCard('Recent mean temperature',climate.temperature_mean_c,'°C',climate.baseline_years?`${climate.baseline_years}-year comparison window`:'Historical/reanalysis',false,2));
+  sections.push(envCard('Baseline temperature',climate.temperature_baseline_c,'°C','Historical baseline',false,2));
+  sections.push(envCard('Rainfall in recent window',climate.rainfall_sum_mm,'mm',climate.window?`${climate.window.days} days`:'Historical/reanalysis',false,1));
+  sections.push(envCard('Baseline rainfall',climate.rainfall_baseline_mm,'mm','Historical baseline',false,1));
+  sections.push(envCard('Rainfall deficit',climate.rainfall_deficit_pct,'%',climate.source||'Computed after evidence analysis',false,1));
 
   sections.push('<div class="env-section-title">Soil Chemistry & Texture • SoilGrids 0–5 cm</div>');
   if(soil.ok){
@@ -288,7 +297,7 @@ async function loadEvidence(showToast=true){if(!ensureLocation())return null;con
 function renderEvidence(d){const c=d.change||{},w=d.warning||{},doctor=d.forest_doctor||{},carbon=d.carbon||{};const conf=c.screening_confidence;setText('areaAffected',c.candidate_area_ha!=null?`${fmt(c.candidate_area_ha,1)} ha`:'—');setText('aiConfidence',conf!=null?pct(conf,0):'—');setText('ndviChange',c.mean_ndvi_change!=null?pct(c.mean_ndvi_change,0):'—');setText('riskScore',w.score!=null?`${fmt(w.score,0)}`:'—');setText('analysisWarning',w.level||'UNKNOWN');setText('analysisCoverage',w.coverage!=null?pct(w.coverage,0):'—');setText('sumAlerts',w.score!=null?`${fmt(w.score,0)}/100`:'—');setText('sumCritical',w.level||'UNKNOWN');setText('sumAlertsDelta',w.level?`${w.level} warning`:'Evidence-normalized');setText('navAlertBadge',w.score!=null?String(Math.round(Number(w.score))):'—');
   const sev=$('severityBadge');sev.textContent=w.level||'UNKNOWN';sev.className=`severity ${(w.level||'unknown').toLowerCase()}`;
   clearDynamicLayer('candidate-loss');if(c.geojson){addGeoPolygon('candidate-loss',c.geojson,'#ff473d')}
-  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);
+  const drivers=doctor.probable_drivers||[];renderCauseBars(drivers);renderSignalBars(w.factors||[]);renderActionPlan(d.action_plan,d);renderEnvironment(state.investigation,state.profile);
   const items=d.evidence_chain?.items||[];$('keyEvidence').innerHTML=items.length?items.slice(0,4).map(x=>`<div class="evidence-item"><span class="evidence-check">✓</span><span>${esc(x.statement||x.source||x.kind)}</span></div>`).join(''):'<div class="empty-state">No complete evidence items returned.</div>';
   $('evidenceChain').innerHTML=items.length?items.map(x=>`<p><b>${esc(x.kind)}</b> · ${esc(x.source)} — ${esc(x.statement)}</p>`).join(''):'<p>Evidence sources are unavailable or incomplete for the selected dates.</p>';
   setText('carbonImpact',carbon.estimated_co2e_t!=null?fmt(carbon.estimated_co2e_t,0):'—');setText('carbonImpactSub',carbon.estimated_co2e_t!=null?'tCO₂e estimated':'Requires biomass/carbon reference');

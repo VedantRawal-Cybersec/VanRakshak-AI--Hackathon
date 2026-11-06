@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://vanrakshak-ai-scu6.onrender.com/api/$1"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "https://vanrakshak-ai-scu6.onrender.com/static/$1"
+    },
+    {
+      "src": "/docs",
+      "dest": "https://vanrakshak-ai-scu6.onrender.com/docs"
+    },
+    {
+      "src": "/openapi.json",
+      "dest": "https://vanrakshak-ai-scu6.onrender.com/openapi.json"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ]
+}
